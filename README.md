@@ -1,62 +1,169 @@
-# README for Custom App Base
+# SkillsHub — AI Skills Discovery
 
-This repository is a starting point for [Copilot Apps](https://www.copilot.app/apps). It is built using using [Next.js](https://nextjs.org/) and was bootstrapped with [create-next-app](https://nextjs.org/docs/pages/api-reference/create-next-app).
+Web app pour **découvrir, rechercher et gérer** les skills IA, serveurs MCP, et outils de développement. Propulsé par Claude AI.
 
-### Benefits
+## Fonctionnalités
 
-Copilot Apps can be embedded in your internal dashboard and client portal and they can use our REST API to fetch information and perform actions, extending the Copilot production with custom functionality to meet a variety of needs.
+- **Recherche full-text** (SQLite FTS5) par nom, description, features et tags
+- **Filtres** par catégorie, prix (free / freemium / paid) et tags
+- **Décomposition de but** — décris ton objectif, Claude le découpe en tâches et suggère les meilleurs outils pour chacune
+- **Comparateur** — compare 2–3 skills côte à côte (features, prix, tags, popularité)
+- **Favoris & Collections** — organise tes skills par projet ou cas d'usage
+- **Notes personnelles** — annote chaque skill avec tes propres observations
+- **Combinaisons de skills** — découvre quels outils fonctionnent bien ensemble
 
-### Prerequisites
+## Stack technique
 
-In order to build a Copilot custom app you’ll need a knowledge of modern web development. Here are some of the tools you’ll encounter in this repository:
+| Couche | Technologie |
+|---|---|
+| Backend | FastAPI + Python 3.11+ |
+| Base de données | SQLite + FTS5 (full-text search) |
+| Frontend | React 18 + Vite + TailwindCSS |
+| IA (décomposition) | Claude API (`claude-opus-4-8`) |
+| ORM async | aiosqlite |
 
-- Node.JS
-- React
-- Next.JS
-- Yarn (NPM, PNPM, Bun or any other Node.JS package manager are also possible, but we use Yarn)
-
-### Getting Started
-
-The easiest way to get started is to fork this repo. Once forked, you will need to deploy the app and add it to Copilot.
-
-**Deploying and Configuring App**
-
-The easiest way to deploy this custom app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme).
-
-- Create a new project in your Vercel account. Note: create an account if you don't have one using github to automatically import repos.
-- Select the forked repo in Import Git Repository
-- In environment variables add COPILOT_API_KEY. Your API key will be generated after you [add your app in the Copilot dashboard](https://dashboard.copilot.app/app-setup/setup?moduleType=extension&moduleId=new&preset=custom&appId=). You can submit 3 different URLs for your app: an internal URL for [internal users](https://docs.copilot.app/reference/internal-users), a client URL for [clients](https://docs.copilot.app/reference/clients), and a webhook URL that allows your app to subscribe to various [webhook events](https://docs.copilot.app/reference/webhooks-events). These values can all be edited after you create your app, so you can start with a simple config and add to it later.
-
-### **Developing App**
-
-All you need to do to get started developing is clone your forked app locally and run a few commands.
-
-**Install dependencies**
-
-```tsx
-yarn install
-```
-
-**Run the app locally**
-
-In order to have the most complete experience when developing locally and seeing your changes reflected in the Copilot platform, you can use [ngrok](https://ngrok.com/) to create a secure tunnel to your local development environment.
-
-1. Create an ngrok account (free): https://dashboard.ngrok.com/signup
-2. After creating an account you will get an auth token which you can find in the [ngrok dashboard](https://dashboard.ngrok.com/get-started/your-authtoken)
-3. Create a `.env.personal` file in the root of the project and add your auth token to it: `NGROK_AUTH_TOKEN="<token copied from ngrok dashboard>"`
-
-Create an app in the Copilot dashboard: https://dashboard.copilot.app/app-setup/new and select a Custom App. For now you can leave the URLs blank since you have not deployed your app yet. This will generate an API key for your app. Add this API key to the `.env.local` file as `COPILOT_API_KEY="<api key copied from Copilot dashboard>"`
-
-Now you can run the app locally
+## Structure du projet
 
 ```
-yarn dev:embedded
+skills-discovery/
+├── backend/
+│   ├── app/
+│   │   ├── main.py              # FastAPI app, démarrage, CORS
+│   │   ├── database.py          # SQLite init, FTS5, triggers
+│   │   ├── models.py            # Schémas Pydantic
+│   │   ├── routers/
+│   │   │   ├── skills.py        # CRUD skills, favoris, notes
+│   │   │   ├── search.py        # Recherche FTS5 + filtres
+│   │   │   ├── collections.py   # Collections + favoris
+│   │   │   ├── goals.py         # Décomposition de but (Claude API)
+│   │   │   └── comparator.py    # Comparaison de skills
+│   │   └── scraper/
+│   │       ├── seed_data.py     # 50+ skills pré-chargés
+│   │       ├── claude_skills.py # Scraper Claude Code skills
+│   │       └── mcp_servers.py   # Scraper MCP servers
+│   ├── requirements.txt
+│   └── run.py
+├── frontend/
+│   ├── src/
+│   │   ├── pages/
+│   │   │   ├── Home.jsx         # Recherche principale
+│   │   │   ├── SkillDetail.jsx  # Détail + notes + collections
+│   │   │   ├── Goals.jsx        # Décomposition de but
+│   │   │   ├── Collections.jsx  # Favoris + collections
+│   │   │   └── Comparator.jsx   # Tableau de comparaison
+│   │   ├── components/
+│   │   │   ├── Navbar.jsx
+│   │   │   ├── SearchBar.jsx
+│   │   │   ├── SkillCard.jsx
+│   │   │   └── TagBadge.jsx
+│   │   └── api.js               # Client Axios
+│   ├── package.json
+│   └── vite.config.js
+└── README.md
 ```
 
-This will open the Copilot dashboard with your app embedded. You can select the app you setup in the Copilot dashboard. The first time you open the app you will be prompted with a message telling you are about to visit your app through ngrok. Click on "Visit Site" to open see your app in the dashboard.
+## Installation et lancement
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+### Prérequis
 
-### Content Security Policy
+- Python 3.11+
+- Node.js 18+
+- (Optionnel) Clé API Anthropic pour la décomposition IA
 
-The Content Security Policy in the custom app base should be configured in `src/middleware.ts`. In the `cspHeader` variable under `frame-ancestors`, `https://dashboard.copilot.app` and `https://*.copilot.app` are pre-configured. If you have a custom domain, you'll also want to add your custom domain here. For example, `https://portal.mycompany.com`.
+### Backend
+
+```bash
+cd skills-discovery/backend
+pip install -r requirements.txt
+
+# Optionnel — activer la décomposition IA avec Claude
+export ANTHROPIC_API_KEY=sk-ant-...
+
+python run.py
+# → http://localhost:8000
+# → Swagger UI : http://localhost:8000/docs
+```
+
+La base de données `skills.db` est créée automatiquement au premier démarrage avec **50+ skills** pré-chargés.
+
+### Frontend (développement)
+
+```bash
+cd skills-discovery/frontend
+npm install
+npm run dev
+# → http://localhost:5173
+```
+
+### Frontend (production — servi par FastAPI)
+
+```bash
+cd skills-discovery/frontend
+npm run build
+# Les fichiers sont dans frontend/dist/
+# FastAPI les sert automatiquement sur http://localhost:8000
+```
+
+## Skills pré-chargés (seed data)
+
+| Catégorie | Nombre | Exemples |
+|---|---|---|
+| Claude Code Skill | 14 | `/deep-research`, `/code-review`, `/security-review` |
+| MCP Server | 12 | `filesystem`, `github`, `brave-search`, `memory` |
+| AI Coding Tool | 16 | Claude Code CLI, Cursor, Aider, Windsurf, v0 |
+| AI Productivity Tool | 8 | Claude.ai, Perplexity, NotebookLM, Phind |
+
+## API — Endpoints principaux
+
+```
+GET  /api/search/search?q=...&category=...&pricing=...&tags=...
+GET  /api/search/categories
+GET  /api/search/tags
+
+GET  /api/skills              # liste paginée
+GET  /api/skills/{id}         # détail + notes + combinaisons
+POST /api/skills/{id}/favorite
+POST /api/skills/{id}/notes
+
+POST /api/goals/decompose     # {"goal": "..."} → tâches + skills
+POST /api/comparator          # {"skill_ids": [1, 2, 3]}
+
+GET  /api/collections
+POST /api/collections
+POST /api/collections/{id}/skills/{skill_id}
+GET  /api/collections/favorites/list
+
+GET  /api/health
+```
+
+## Décomposition de but
+
+Avec une clé API Anthropic, la décomposition utilise **Claude** (`claude-opus-4-8`) pour :
+1. Analyser le but et identifier 3–5 sous-tâches
+2. Suggérer les skills les plus pertinents de la base locale pour chaque tâche
+
+Sans clé API, un fallback rule-based prend le relais (détection par mots-clés).
+
+**Exemple :**
+> "Construire une API REST avec authentification et base de données PostgreSQL"
+
+→ Tâches générées :
+1. Design API structure → **Claude Code CLI**, Claude.ai, claude-api
+2. Implement backend logic → **Claude Code CLI**, Cursor, Continue.dev
+3. Set up database → **postgres MCP**, Claude Code CLI
+4. Write tests → **Claude Code CLI**, code-review
+5. Document and deploy → **Claude Code CLI**, fetch MCP
+
+## Variables d'environnement
+
+| Variable | Requis | Description |
+|---|---|---|
+| `ANTHROPIC_API_KEY` | Non | Active la décomposition de but par Claude |
+
+## Roadmap
+
+- [ ] Entité **Workflow** — séquences ordonnées de skills sauvegardables
+- [ ] **Software** comme catégorie (VS Code, Docker, Postman…)
+- [ ] Mise à jour automatique via re-crawl périodique
+- [ ] Export JSON/CSV d'une sélection de skills
+- [ ] Score de popularité enrichi (GitHub stars, Reddit mentions)
