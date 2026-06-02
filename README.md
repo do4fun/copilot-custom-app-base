@@ -64,38 +64,91 @@ skills-discovery/
 
 ## Installation et lancement
 
-### Prérequis
+### 1. Installer les prérequis
 
-- Python 3.11+
-- Node.js 18+
-- (Optionnel) Clé API Anthropic pour la décomposition IA
+#### Python 3.11+
 
-## Installation
-### Clone le repo source
+**macOS**
 ```bash
-git clone <https://github.com/do4fun/copilot-custom-app-base.git>
-cd copilot-custom-app-base
-git checkout claude/skills-discovery-search-URep2
+brew install python@3.11
 ```
-### Copie le dossier et initialise le nouveau repo
+
+**Ubuntu / Debian**
 ```bash
-cp -r skills-discovery /tmp/skills-discovery
-cd /tmp/skills-discovery
-git init
-git checkout -b dev
-git add .
-git commit -m "feat: initial skills-discovery project - FastAPI + React + SQLite FTS5"
-git remote add origin <https://github.com/do4fun/skills-discovery.git>
-git push -u origin dev
+sudo apt update && sudo apt install -y python3.11 python3.11-venv python3-pip
 ```
-### Backend
+
+**Windows**
+Télécharger l'installeur sur [python.org/downloads](https://www.python.org/downloads/) (cocher *Add Python to PATH*).
+
+Vérifier l'installation :
+```bash
+python3 --version   # Python 3.11.x
+pip3 --version
+```
+
+---
+
+#### Node.js 18+ et npm
+
+**macOS**
+```bash
+brew install node
+```
+
+**Ubuntu / Debian**
+```bash
+curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
+sudo apt install -y nodejs
+```
+
+**Windows**
+Télécharger l'installeur LTS sur [nodejs.org](https://nodejs.org/).
+
+Vérifier l'installation :
+```bash
+node --version   # v20.x.x
+npm --version    # 10.x.x
+```
+
+---
+
+### 2. Installer les dépendances
+
+#### Backend (Python)
 
 ```bash
 cd skills-discovery/backend
 pip install -r requirements.txt
+```
+
+> **Recommandé** — utiliser un virtual environment :
+> ```bash
+> python3 -m venv .venv
+> source .venv/bin/activate      # macOS / Linux
+> .venv\Scripts\activate         # Windows
+> pip install -r requirements.txt
+> ```
+
+#### Frontend (Node.js)
+
+```bash
+cd skills-discovery/frontend
+npm install
+```
+
+---
+
+### 3. Lancer le projet
+
+#### Backend
+
+```bash
+cd skills-discovery/backend
 
 # Optionnel — activer la décomposition IA avec Claude
-export ANTHROPIC_API_KEY=sk-ant-...
+export ANTHROPIC_API_KEY=sk-ant-...   # macOS / Linux
+set ANTHROPIC_API_KEY=sk-ant-...      # Windows
 
 python run.py
 # → http://localhost:8000
@@ -104,11 +157,10 @@ python run.py
 
 La base de données `skills.db` est créée automatiquement au premier démarrage avec **50+ skills** pré-chargés.
 
-### Frontend (développement)
+#### Frontend (développement)
 
 ```bash
 cd skills-discovery/frontend
-npm install
 npm run dev
 # → http://localhost:5173
 ```
