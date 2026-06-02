@@ -68,28 +68,36 @@ skills-discovery/
 
 #### Python 3.11+
 
+Dernière version : [python.org/downloads](https://www.python.org/downloads/)
+
 **macOS**
 ```bash
-brew install python@3.11
+brew install python@3.13
 ```
 
 **Ubuntu / Debian**
 ```bash
-sudo apt update && sudo apt install -y python3.11 python3.11-venv python3-pip
+sudo apt update && sudo apt install -y python3 python3-venv python3-pip
 ```
 
-**Windows**
-Télécharger l'installeur sur [python.org/downloads](https://www.python.org/downloads/) (cocher *Add Python to PATH*).
+**Windows** — Télécharger l'installeur depuis [python.org/downloads](https://www.python.org/downloads/) (cocher **Add Python to PATH**)
+```powershell
+# Vérifier l'installation
+python --version
+pip --version
+```
 
-Vérifier l'installation :
+**macOS / Linux** — Vérifier l'installation :
 ```bash
-python3 --version   # Python 3.11.x
+python3 --version
 pip3 --version
 ```
 
 ---
 
-#### Node.js 18+ et npm
+#### Node.js 20 LTS et npm
+
+Dernière version LTS : [nodejs.org/en/download](https://nodejs.org/en/download)
 
 **macOS**
 ```bash
@@ -98,18 +106,29 @@ brew install node
 
 **Ubuntu / Debian**
 ```bash
-curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
+curl -fsSL https://deb.nodesource.com/setup_lts.x | sudo -E bash -
 sudo apt install -y nodejs
 ```
 
-**Windows**
-Télécharger l'installeur LTS sur [nodejs.org](https://nodejs.org/).
-
-Vérifier l'installation :
-```bash
-node --version   # v20.x.x
-npm --version    # 10.x.x
+**Windows** — Télécharger l'installeur LTS depuis [nodejs.org/en/download](https://nodejs.org/en/download)
+```powershell
+# Vérifier l'installation
+node --version
+npm --version
 ```
+
+**macOS / Linux** — Vérifier l'installation :
+```bash
+node --version
+npm --version
+```
+
+---
+
+#### Clé API Anthropic (optionnel)
+
+Nécessaire pour activer la décomposition de but par Claude.
+Créer un compte et générer une clé sur [console.anthropic.com](https://console.anthropic.com).
 
 ---
 
@@ -117,18 +136,21 @@ npm --version    # 10.x.x
 
 #### Backend (Python)
 
+**macOS / Linux**
 ```bash
 cd skills-discovery/backend
+python3 -m venv .venv
+source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-> **Recommandé** — utiliser un virtual environment :
-> ```bash
-> python3 -m venv .venv
-> source .venv/bin/activate      # macOS / Linux
-> .venv\Scripts\activate         # Windows
-> pip install -r requirements.txt
-> ```
+**Windows (PowerShell)**
+```powershell
+cd skills-discovery\backend
+python -m venv .venv
+.venv\Scripts\Activate.ps1
+pip install -r requirements.txt
+```
 
 #### Frontend (Node.js)
 
@@ -143,15 +165,31 @@ npm install
 
 #### Backend
 
+**macOS / Linux**
 ```bash
 cd skills-discovery/backend
+source .venv/bin/activate
 
 # Optionnel — activer la décomposition IA avec Claude
-export ANTHROPIC_API_KEY=sk-ant-...   # macOS / Linux
-set ANTHROPIC_API_KEY=sk-ant-...      # Windows
+export ANTHROPIC_API_KEY=sk-ant-...
 
 python run.py
 # → http://localhost:8000
+# → Swagger UI : http://localhost:8000/docs
+```
+
+**Windows (PowerShell)**
+```powershell
+cd skills-discovery\backend
+.venv\Scripts\Activate.ps1
+
+# Optionnel — activer la décomposition IA avec Claude
+$env:ANTHROPIC_API_KEY = "sk-ant-..."
+
+python run.py
+# → http://localhost:8000
+# → Swagger UI : http://localhost:8000/docs
+```
 # → Swagger UI : http://localhost:8000/docs
 ```
 
