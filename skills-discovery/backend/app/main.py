@@ -4,7 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from .database import init_db, get_db_connection
-from .routers import skills, search, collections, goals, comparator
+from .routers import skills, search, collections, goals, comparator, scraper
 from .scraper.seed_data import seed_data
 
 app = FastAPI(
@@ -28,6 +28,7 @@ app.include_router(search.router, prefix="/api/search", tags=["search"])
 app.include_router(collections.router, prefix="/api/collections", tags=["collections"])
 app.include_router(goals.router, prefix="/api/goals", tags=["goals"])
 app.include_router(comparator.router, prefix="/api/comparator", tags=["comparator"])
+app.include_router(scraper.router, prefix="/api/scraper", tags=["scraper"])
 
 
 @app.on_event("startup")

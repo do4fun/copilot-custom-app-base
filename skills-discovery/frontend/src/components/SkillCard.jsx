@@ -72,6 +72,11 @@ export default function SkillCard({
           </div>
         </div>
 
+        {/* Paid badge */}
+        {skill.pricing === 'paid' && (
+          <span className="flex-shrink-0 text-yellow-400 text-xs font-bold leading-none pt-2">$</span>
+        )}
+
         {/* Favorite star */}
         <button
           className={`flex-shrink-0 p-1.5 rounded-lg transition-colors ${

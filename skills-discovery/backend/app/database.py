@@ -78,6 +78,21 @@ async def init_db():
                 description TEXT
             );
 
+            CREATE TABLE IF NOT EXISTS scraper_sessions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                source TEXT,
+                status TEXT DEFAULT 'pending',
+                progress INTEGER DEFAULT 0,
+                total INTEGER DEFAULT 0,
+                found INTEGER DEFAULT 0,
+                logs TEXT DEFAULT '[]',
+                started_at TEXT,
+                paused_at TEXT,
+                finished_at TEXT,
+                created_at TEXT DEFAULT (datetime('now'))
+            );
+
             CREATE VIRTUAL TABLE IF NOT EXISTS skills_fts USING fts5(
                 name, description, features,
                 content=skills, content_rowid=id

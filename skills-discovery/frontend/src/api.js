@@ -66,4 +66,14 @@ export const decomposeGoal = (goal) =>
 export const compareSkills = (ids) =>
   api.post('/comparator', { skill_ids: ids })
 
+// Scraper
+export const getScrapers = () => api.get('/scraper/scrapers')
+export const getSessions = () => api.get('/scraper/sessions')
+export const getSession = (id) => api.get(`/scraper/sessions/${id}`)
+export const startSession = (scraper_id) => api.post('/scraper/sessions', { scraper_id })
+export const pauseSession = (id) => api.post(`/scraper/sessions/${id}/pause`)
+export const resumeSession = (id) => api.post(`/scraper/sessions/${id}/resume`)
+export const stopSession = (id) => api.post(`/scraper/sessions/${id}/stop`)
+export const deleteSession = (id) => api.delete(`/scraper/sessions/${id}`)
+
 export default api
