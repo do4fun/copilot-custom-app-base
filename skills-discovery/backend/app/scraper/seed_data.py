@@ -596,6 +596,30 @@ SEED_SKILLS = [
         "popularity_score": 8.6,
         "tags": ["ai-coding", "full-stack", "react", "supabase", "deployment", "no-code"],
     },
+    {
+        "name": "Claude Code CLI",
+        "description": "Anthropic's agentic AI coding tool that runs in the terminal with full codebase context. Reads, writes, and runs code across your entire project, integrates with git, supports MCP servers, and executes multi-step tasks autonomously.",
+        "category": "AI Coding Tool",
+        "source_url": "https://claude.ai/code",
+        "source_name": "Anthropic",
+        "pricing": "freemium",
+        "price_details": "Requires Anthropic API key (pay-per-token) or Claude Pro/Max subscription ($20–$100/month). Free tier available via API.",
+        "features": json.dumps([
+            "Full codebase context",
+            "Multi-file autonomous editing",
+            "Terminal & shell command execution",
+            "Git integration (commit, push, PR creation)",
+            "MCP server support",
+            "Built-in skills system (/deep-research, /review, etc.)",
+            "Web interface + VS Code / JetBrains extensions",
+            "Agent SDK for custom agents",
+            "Parallel subagents",
+            "Claude Opus 4 / Sonnet powered"
+        ]),
+        "install_instructions": "npm install -g @anthropic-ai/claude-code\nOr via the Claude.ai web interface at claude.ai/code",
+        "popularity_score": 9.9,
+        "tags": ["ai-coding", "anthropic", "terminal", "cli", "agent", "git", "mcp", "autonomous", "agentic"],
+    },
 ]
 
 

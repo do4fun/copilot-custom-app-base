@@ -206,59 +206,59 @@ async def _rule_based_decompose(goal: str, db: aiosqlite.Connection) -> List[Tas
     if any(kw in goal_lower for kw in ["api", "rest", "backend", "server", "endpoint"]):
         task_templates = [
             ("Design API structure", "Plan endpoints, data models, and authentication strategy",
-             ["GitHub Copilot", "Continue.dev", "Codeium"]),
+             ["Claude Code CLI", "Claude.ai", "claude-api"]),
             ("Implement backend logic", "Write the core server code and business logic",
-             ["GitHub Copilot", "Cursor", "Amazon CodeWhisperer"]),
+             ["Claude Code CLI", "Cursor", "Continue.dev"]),
             ("Set up database", "Configure and connect to a database",
-             ["postgres MCP", "GitHub Copilot", "Continue.dev"]),
+             ["postgres MCP", "Claude Code CLI", "Continue.dev"]),
             ("Write tests", "Create unit and integration tests for the API",
-             ["GitHub Copilot", "code-review", "Cursor"]),
+             ["Claude Code CLI", "code-review", "Cursor"]),
             ("Document and deploy", "Generate API docs and deploy to production",
-             ["GitHub Copilot", "fetch MCP", "brave-search MCP"]),
+             ["Claude Code CLI", "fetch MCP", "brave-search MCP"]),
         ]
     elif any(kw in goal_lower for kw in ["web", "frontend", "react", "ui", "interface"]):
         task_templates = [
             ("Set up project structure", "Initialize the frontend project with proper tooling",
-             ["GitHub Copilot", "Cursor", "Continue.dev"]),
+             ["Claude Code CLI", "v0 by Vercel", "Cursor"]),
             ("Build UI components", "Create reusable React/UI components",
-             ["GitHub Copilot", "Cursor", "Codeium"]),
+             ["Claude Code CLI", "v0 by Vercel", "Bolt.new"]),
             ("Handle state management", "Implement app state and data flow",
-             ["GitHub Copilot", "Continue.dev", "Sourcegraph Cody"]),
+             ["Claude Code CLI", "Continue.dev", "Sourcegraph Cody"]),
             ("Connect to backend", "Integrate with APIs and handle async data",
-             ["GitHub Copilot", "Cursor", "fetch MCP"]),
+             ["Claude Code CLI", "Cursor", "fetch MCP"]),
             ("Test and optimize", "Write tests and improve performance",
-             ["GitHub Copilot", "code-review", "Cursor"]),
+             ["Claude Code CLI", "code-review", "verify"]),
         ]
     elif any(kw in goal_lower for kw in ["research", "find", "search", "information", "learn"]):
         task_templates = [
             ("Search for relevant sources", "Find authoritative information on the topic",
-             ["brave-search MCP", "fetch MCP", "Perplexity"]),
+             ["deep-research", "brave-search MCP", "Perplexity"]),
             ("Deep dive into specifics", "Research technical details and nuances",
-             ["Perplexity", "Phind", "You.com"]),
+             ["Claude.ai", "Perplexity", "Phind"]),
             ("Synthesize findings", "Combine information from multiple sources",
-             ["NotebookLM", "Perplexity", "ChatGPT plugins"]),
+             ["Claude.ai", "NotebookLM", "memory MCP"]),
         ]
     elif any(kw in goal_lower for kw in ["automate", "script", "workflow", "pipeline"]):
         task_templates = [
             ("Identify automation opportunities", "Map out repetitive tasks to automate",
-             ["GitHub Copilot", "Cursor", "Continue.dev"]),
+             ["Claude Code CLI", "Claude.ai", "sequential-thinking MCP"]),
             ("Write automation scripts", "Create scripts for each automation task",
-             ["GitHub Copilot", "Amazon CodeWhisperer", "Codeium"]),
+             ["Claude Code CLI", "Aider", "Continue.dev"]),
             ("Set up orchestration", "Connect automation steps into a pipeline",
-             ["memory MCP", "sequential-thinking MCP", "GitHub Copilot"]),
+             ["memory MCP", "sequential-thinking MCP", "claude-api"]),
             ("Test and monitor", "Verify automation works and add monitoring",
-             ["GitHub Copilot", "code-review", "puppeteer MCP"]),
+             ["Claude Code CLI", "code-review", "puppeteer MCP"]),
         ]
     else:
         task_templates = [
             ("Understand requirements", "Break down and clarify the goal requirements",
-             ["GitHub Copilot", "Perplexity", "ChatGPT plugins"]),
+             ["Claude.ai", "Claude Code CLI", "sequential-thinking MCP"]),
             ("Research solutions", "Find relevant tools and approaches",
-             ["brave-search MCP", "Perplexity", "Phind"]),
+             ["deep-research", "brave-search MCP", "Perplexity"]),
             ("Implement solution", "Build or configure the chosen approach",
-             ["GitHub Copilot", "Cursor", "Continue.dev"]),
+             ["Claude Code CLI", "Cursor", "Continue.dev"]),
             ("Review and refine", "Test, review, and improve the implementation",
-             ["code-review", "GitHub Copilot", "Sourcegraph Cody"]),
+             ["code-review", "security-review", "Claude Code CLI"]),
         ]
 
     tasks = []
