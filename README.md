@@ -70,6 +70,24 @@ skills-discovery/
 - Node.js 18+
 - (Optionnel) Clé API Anthropic pour la décomposition IA
 
+## Installation
+### Clone le repo source
+```bash
+git clone <https://github.com/do4fun/copilot-custom-app-base.git>
+cd copilot-custom-app-base
+git checkout claude/skills-discovery-search-URep2
+```
+### Copie le dossier et initialise le nouveau repo
+```bash
+cp -r skills-discovery /tmp/skills-discovery
+cd /tmp/skills-discovery
+git init
+git checkout -b dev
+git add .
+git commit -m "feat: initial skills-discovery project - FastAPI + React + SQLite FTS5"
+git remote add origin <https://github.com/do4fun/skills-discovery.git>
+git push -u origin dev
+```
 ### Backend
 
 ```bash
