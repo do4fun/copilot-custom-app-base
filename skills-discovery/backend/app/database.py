@@ -102,3 +102,9 @@ async def init_db():
         """)
         await db.commit()
         return db
+
+
+async def get_db_connection():
+    db = await aiosqlite.connect(DB_PATH)
+    db.row_factory = aiosqlite.Row
+    return db
