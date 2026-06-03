@@ -78,6 +78,33 @@ async def init_db():
                 description TEXT
             );
 
+            CREATE TABLE IF NOT EXISTS discovered_urls (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                url TEXT UNIQUE NOT NULL,
+                url_normalized TEXT UNIQUE NOT NULL,
+                title TEXT,
+                context TEXT,
+                source TEXT,
+                status TEXT DEFAULT 'pending',
+                skill_id INTEGER REFERENCES skills(id),
+                error_msg TEXT,
+                discovered_at TEXT DEFAULT (datetime('now')),
+                processed_at TEXT
+            );
+
+            CREATE TABLE IF NOT EXISTS agent_sessions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                agent_type TEXT NOT NULL,
+                status TEXT DEFAULT 'idle',
+                config TEXT DEFAULT '{}',
+                stats TEXT DEFAULT '{}',
+                logs TEXT DEFAULT '[]',
+                started_at TEXT,
+                paused_at TEXT,
+                stopped_at TEXT,
+                created_at TEXT DEFAULT (datetime('now'))
+            );
+
             CREATE TABLE IF NOT EXISTS scraper_sessions (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 name TEXT NOT NULL,

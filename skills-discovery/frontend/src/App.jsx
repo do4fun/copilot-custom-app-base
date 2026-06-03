@@ -7,6 +7,7 @@ import Goals from './pages/Goals'
 import Collections from './pages/Collections'
 import Comparator from './pages/Comparator'
 import Scraper from './pages/Scraper'
+import Agents from './pages/Agents'
 
 export default function App() {
   return (
@@ -21,6 +22,7 @@ export default function App() {
             <Route path="/collections" element={<Collections />} />
             <Route path="/comparator" element={<Comparator />} />
             <Route path="/scraper" element={<Scraper />} />
+            <Route path="/agents" element={<Agents />} />
           </Routes>
         </main>
       </div>
