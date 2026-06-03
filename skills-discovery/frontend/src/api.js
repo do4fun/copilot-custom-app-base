@@ -75,5 +75,6 @@ export const pauseSession = (id) => api.post(`/scraper/sessions/${id}/pause`)
 export const resumeSession = (id) => api.post(`/scraper/sessions/${id}/resume`)
 export const stopSession = (id) => api.post(`/scraper/sessions/${id}/stop`)
 export const deleteSession = (id) => api.delete(`/scraper/sessions/${id}`)
+export const clearCompletedSessions = () => api.post('/scraper/sessions/clear-all')
 
 export default api
