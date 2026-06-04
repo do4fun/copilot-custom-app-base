@@ -4,7 +4,7 @@ Web app pour **découvrir, rechercher et gérer** les skills IA, serveurs MCP, e
 
 ## Fonctionnalités
 
-- **Recherche full-text** (SQLite FTS5) par nom, description, features et tags
+- **Recherche full-text** (SQLite FTS5) par nom, description, features, tags
 - **Filtres** par catégorie, prix (free / freemium / paid) et tags
 - **Décomposition de but** — décris ton objectif, Claude le découpe en tâches et suggère les meilleurs outils pour chacune
 - **Comparateur** — compare 2–3 skills côte à côte (features, prix, tags, popularité)
@@ -64,67 +64,20 @@ skills-discovery/
 
 ## Installation et lancement
 
-### 1. Installer les prérequis
+### Prérequis
 
-#### Python
+- Python 3.11+
+- Node.js 18+
+- (Optionnel) Clé API Anthropic pour la décomposition IA
 
-Télécharger la dernière version depuis [python.org/downloads](https://www.python.org/downloads/) — cocher **Add Python to PATH** lors de l'installation.
+### Backend
 
-```powershell
-python --version
-pip --version
-```
-
----
-
-#### Node.js et npm
-
-Télécharger la dernière version LTS depuis [nodejs.org/en/download](https://nodejs.org/en/download).
-
-```powershell
-node --version
-npm --version
-```
-
----
-
-#### Clé API Anthropic (optionnel)
-
-Nécessaire pour activer la décomposition de but par Claude.
-Créer un compte et générer une clé sur [console.anthropic.com](https://console.anthropic.com).
-
----
-
-### 2. Installer les dépendances
-
-#### Backend (Python)
-
-```powershell
-cd skills-discovery\backend
-python -m venv .venv
-.venv\Scripts\Activate.ps1
+```bash
+cd backend
 pip install -r requirements.txt
-```
-
-#### Frontend (Node.js)
-
-```powershell
-cd skills-discovery\frontend
-npm install
-```
-
----
-
-### 3. Lancer le projet
-
-#### Backend
-
-```powershell
-cd skills-discovery\backend
-.venv\Scripts\Activate.ps1
 
 # Optionnel — activer la décomposition IA avec Claude
-$env:ANTHROPIC_API_KEY = "sk-ant-..."
+export ANTHROPIC_API_KEY=sk-ant-...
 
 python run.py
 # → http://localhost:8000
@@ -133,10 +86,11 @@ python run.py
 
 La base de données `skills.db` est créée automatiquement au premier démarrage avec **50+ skills** pré-chargés.
 
-#### Frontend (développement)
+### Frontend (développement)
 
 ```bash
-cd skills-discovery/frontend
+cd frontend
+npm install
 npm run dev
 # → http://localhost:5173
 ```
@@ -144,7 +98,7 @@ npm run dev
 ### Frontend (production — servi par FastAPI)
 
 ```bash
-cd skills-discovery/frontend
+cd frontend
 npm run build
 # Les fichiers sont dans frontend/dist/
 # FastAPI les sert automatiquement sur http://localhost:8000
@@ -206,7 +160,7 @@ Sans clé API, un fallback rule-based prend le relais (détection par mots-clés
 |---|---|---|
 | `ANTHROPIC_API_KEY` | Non | Active la décomposition de but par Claude |
 
-## Roadmap
+## Développement futur
 
 - [ ] Entité **Workflow** — séquences ordonnées de skills sauvegardables
 - [ ] **Software** comme catégorie (VS Code, Docker, Postman…)
