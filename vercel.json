@@ -1,5 +1,0 @@
-{
-  "buildCommand": "cd skills-discovery/frontend && npm install && npm run build",
-  "outputDirectory": "skills-discovery/frontend/dist",
-  "framework": "vite"
-}
