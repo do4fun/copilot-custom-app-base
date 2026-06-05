@@ -1,7 +1,8 @@
 import aiosqlite
 import os
 
-DB_PATH = os.path.join(os.path.dirname(__file__), "..", "skills.db")
+_local_db = os.path.join(os.path.dirname(__file__), "..", "skills.db")
+DB_PATH = "/tmp/skills.db" if os.environ.get("VERCEL") else _local_db
 
 async def get_db():
     async with aiosqlite.connect(DB_PATH) as db:
