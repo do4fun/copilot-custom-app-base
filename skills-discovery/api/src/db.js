@@ -109,8 +109,9 @@ export function initDb() {
     );
 
   `)
-  // Migration: add failed column to existing DBs (no-op if already present)
+  // Migrations (no-op if column already exists)
   try { db.exec('ALTER TABLE scraper_sessions ADD COLUMN failed INTEGER DEFAULT 0') } catch {}
+  try { db.exec('ALTER TABLE skills ADD COLUMN readme TEXT') } catch {}
 
   // Rebuild FTS5 index from the skills table so every skill is searchable,
   // including those inserted before the triggers existed or via external tools.
@@ -174,9 +175,10 @@ export function upsertSkill(item) {
   }
   const description = (item.description || '').slice(0, 500)
   const features = Array.isArray(item.features) ? JSON.stringify(item.features) : (item.features || '[]')
+  const readme = (item.readme || '').slice(0, 15000)
   const { lastInsertRowid: sid } = db.prepare(`
-    INSERT INTO skills (name, description, category, source_url, source_name, pricing, features, version, popularity_score, last_checked, created_at, updated_at)
-    VALUES (?,?,?,?,?,?,?,?,?,datetime('now'),datetime('now'),datetime('now'))
+    INSERT INTO skills (name, description, category, source_url, source_name, pricing, features, version, popularity_score, readme, last_checked, created_at, updated_at)
+    VALUES (?,?,?,?,?,?,?,?,?,?,datetime('now'),datetime('now'),datetime('now'))
   `).run(
     name,
     description,
@@ -187,6 +189,7 @@ export function upsertSkill(item) {
     features,
     item.version || '',
     parseFloat(item.popularity_score) || 0,
+    readme,
   )
   db.prepare('INSERT INTO skills_fts(rowid, name, description, features) VALUES (?,?,?,?)').run(sid, name, description, features)
   ;(item.tags || []).forEach(t => {

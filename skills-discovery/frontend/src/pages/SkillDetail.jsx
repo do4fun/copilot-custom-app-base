@@ -199,6 +199,16 @@ export default function SkillDetail() {
           </div>
         </div>
 
+        {/* Documentation (skill.md or README) */}
+        {skill.readme && (
+          <div>
+            <h2 className="text-sm font-semibold text-gray-400 uppercase tracking-wide mb-3">Documentation</h2>
+            <pre className="bg-gray-900 border border-gray-700 rounded-xl p-4 text-xs text-gray-300 leading-relaxed overflow-x-auto overflow-y-auto max-h-96 whitespace-pre-wrap font-mono">
+              {skill.readme}
+            </pre>
+          </div>
+        )}
+
         {/* Features */}
         {features.length > 0 && (
           <div>

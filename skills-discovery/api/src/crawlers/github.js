@@ -1,5 +1,7 @@
+const FETCH_OPTS = { headers: { 'User-Agent': 'skillshub-crawler/2.0' } }
+
 async function fetchText(url) {
-  const res = await fetch(url, { headers: { 'User-Agent': 'skillshub-crawler/2.0' } })
+  const res = await fetch(url, FETCH_OPTS)
   if (!res.ok) throw new Error(`HTTP ${res.status} — ${url}`)
   return res.text()
 }
@@ -10,6 +12,37 @@ async function fetchJson(url) {
   })
   if (!res.ok) throw new Error(`GitHub API ${res.status} — ${url}`)
   return res.json()
+}
+
+// Try skill.md first (Claude Code skill format), then README.md.
+// Returns { type, content } or null. Works for any github.com URL.
+async function fetchReadme(githubUrl) {
+  const m = (githubUrl || '').match(/github\.com\/([^/]+)\/([^/\s?#]+)/)
+  if (!m) return null
+  const base = `https://raw.githubusercontent.com/${m[1]}/${m[2]}/main`
+  for (const [file, maxLen] of [['skill.md', 15000], ['README.md', 6000]]) {
+    try {
+      const res = await fetch(`${base}/${file}`, {
+        ...FETCH_OPTS,
+        signal: AbortSignal.timeout(5000),
+      })
+      if (res.ok) return { type: file, content: (await res.text()).slice(0, maxLen) }
+    } catch {}
+  }
+  return null
+}
+
+// Fetch readmes for a batch of items in parallel, return array matching input order
+async function batchFetchReadmes(items, urlKey, onLog, batchSize = 15) {
+  const results = new Array(items.length).fill(null)
+  for (let i = 0; i < items.length; i += batchSize) {
+    const slice = items.slice(i, i + batchSize)
+    const fetched = await Promise.allSettled(slice.map(item => fetchReadme(item[urlKey])))
+    fetched.forEach((r, j) => {
+      if (r.status === 'fulfilled' && r.value) results[i + j] = r.value
+    })
+  }
+  return results
 }
 
 function parseAwesomeMarkdown(markdown, category) {
@@ -40,11 +73,16 @@ export async function crawlGithubAwesome(config, { onSkill, onLog, onTotal, onFa
   onLog(`Fetching: ${rawUrl}`)
   const markdown = await fetchText(rawUrl)
   const all = parseAwesomeMarkdown(markdown, category)
-  onLog(`${all.length} entrées dans le README — traitement en cours…`)
+  onLog(`${all.length} entrées dans le README — récupération des détails…`)
   onTotal(all.length)
-  for (const s of all) {
+
+  const readmes = await batchFetchReadmes(all, 'source_url', onLog)
+  let skillMdCount = readmes.filter(r => r?.type === 'skill.md').length
+  if (skillMdCount) onLog(`${skillMdCount} fichier(s) skill.md trouvés`)
+
+  for (let i = 0; i < all.length; i++) {
     if (checkStop()) break
-    onSkill(s)
+    onSkill({ ...all[i], readme: readmes[i]?.content || '' })
   }
 }
 
@@ -55,10 +93,18 @@ export async function crawlGithubSearch(config, { onSkill, onLog, onTotal, onFai
   const apiUrl = `https://api.github.com/search/repositories?q=${encodeURIComponent(query)}&sort=stars&per_page=100`
   const data = await fetchJson(apiUrl)
   const repos = data.items || []
-  onLog(`GitHub: ${repos.length} dépôts — traitement en cours…`)
+  onLog(`${repos.length} dépôts — récupération des détails…`)
   onTotal(repos.length)
-  for (const repo of repos) {
+
+  // Map repos to objects with source_url for the generic readme fetcher
+  const repoItems = repos.map(r => ({ source_url: r.html_url, _repo: r }))
+  const readmes = await batchFetchReadmes(repoItems, 'source_url', onLog)
+  let skillMdCount = readmes.filter(r => r?.type === 'skill.md').length
+  if (skillMdCount) onLog(`${skillMdCount} fichier(s) skill.md trouvés`)
+
+  for (let i = 0; i < repos.length; i++) {
     if (checkStop()) break
+    const repo = repos[i]
     onSkill({
       name:             repo.name,
       description:      (repo.description || '').slice(0, 500),
@@ -68,6 +114,7 @@ export async function crawlGithubSearch(config, { onSkill, onLog, onTotal, onFai
       pricing:          'free',
       popularity_score: parseFloat(Math.min(9.9, repo.stargazers_count / 1000).toFixed(2)),
       tags:             (repo.topics || []).slice(0, 10),
+      readme:           readmes[i]?.content || '',
     })
   }
 }
