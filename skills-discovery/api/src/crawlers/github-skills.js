@@ -229,7 +229,7 @@ export async function crawlGithubSkillRepo(config, {
           version:      skill.version,
           tags:         skill.tags,
           features:     skill.features,
-          readme:       content.slice(0, 15000),
+          readme:       content,
         })
       } catch (e) {
         onFail(`${file.path} — ${e.message}`)
@@ -331,7 +331,7 @@ export async function crawlGithubSkillFiles(config, {
           version:      skill.version,
           tags:         skill.tags,
           features:     skill.features,
-          readme:       content.slice(0, 15000),
+          readme:       content,
         })
       } catch (e) {
         onFail(`${item.path} — ${e.message}`)

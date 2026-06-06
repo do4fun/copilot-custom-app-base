@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import TagBadge from '../components/TagBadge'
 import { getSkill, toggleFavorite, addNote, deleteNote, getCollections, addToCollection } from '../api'
+import MarkdownContent from '../components/MarkdownContent'
 
 const COMPARATOR_KEY = 'skillsHub_comparator'
 
@@ -199,13 +200,13 @@ export default function SkillDetail() {
           </div>
         </div>
 
-        {/* Documentation (skill.md or README) */}
+        {/* Documentation — rendered markdown (SKILL.md body or README) */}
         {skill.readme && (
           <div>
             <h2 className="text-sm font-semibold text-gray-400 uppercase tracking-wide mb-3">Documentation</h2>
-            <pre className="bg-gray-900 border border-gray-700 rounded-xl p-4 text-xs text-gray-300 leading-relaxed overflow-x-auto overflow-y-auto max-h-96 whitespace-pre-wrap font-mono">
-              {skill.readme}
-            </pre>
+            <div className="bg-gray-900 border border-gray-700 rounded-xl p-5 overflow-y-auto max-h-[640px]">
+              <MarkdownContent content={skill.readme} />
+            </div>
           </div>
         )}
 

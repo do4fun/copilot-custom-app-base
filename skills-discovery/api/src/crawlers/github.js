@@ -20,13 +20,18 @@ async function fetchReadme(githubUrl) {
   const m = (githubUrl || '').match(/github\.com\/([^/]+)\/([^/\s?#]+)/)
   if (!m) return null
   const base = `https://raw.githubusercontent.com/${m[1]}/${m[2]}/main`
-  for (const [file, maxLen] of [['skill.md', 15000], ['README.md', 6000]]) {
+  // skill.md: full content (no limit — it's the skill definition itself)
+  // README.md: cap at 20 000 chars (READMEs can be multi-MB)
+  for (const [file, maxLen] of [['skill.md', Infinity], ['README.md', 20000]]) {
     try {
       const res = await fetch(`${base}/${file}`, {
         ...FETCH_OPTS,
         signal: AbortSignal.timeout(5000),
       })
-      if (res.ok) return { type: file, content: (await res.text()).slice(0, maxLen) }
+      if (res.ok) {
+        const text = await res.text()
+        return { type: file, content: maxLen === Infinity ? text : text.slice(0, maxLen) }
+      }
     } catch {}
   }
   return null
