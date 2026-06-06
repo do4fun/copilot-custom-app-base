@@ -38,7 +38,8 @@ function parseYaml(yaml) {
       collecting = true
       buf = []
     } else if (val.startsWith('[')) {
-      result[key] = val.replace(/^\[|\]$/g, '').split(',').map(s => s.trim().replace(/^["']|["']$/g, '')).filter(Boolean)
+      result[key] = val.replace(/^\[|\]$/g, '').split(',')
+        .map(s => s.trim().replace(/^["']|["']$/g, '')).filter(Boolean)
       key = null
     } else {
       result[key] = val.replace(/^["']|["']$/g, '')
@@ -50,57 +51,69 @@ function parseYaml(yaml) {
   return result
 }
 
-// ─── Skill markdown parser ────────────────────────────────────────────────────
+// ─── Skill validation & parsing ───────────────────────────────────────────────
+//
+// Reference: https://github.com/anthropics/skills
+//
+// A Claude Code skill is a SKILL.md / skill.md with YAML frontmatter containing:
+//   name        — identifier (kebab-case)
+//   description — PRIMARY trigger mechanism: what the skill does + when to use it
+// The markdown body contains instructions for Claude on how to execute the skill.
+//
+// A file is only a valid skill if BOTH name AND description are in the frontmatter
+// AND the body has substantive instructions. Files that are regular READMEs or
+// docs that happen to be named skill.md are rejected here.
 
-export function parseSkillMarkdown(content, fallbackName) {
-  let name = fallbackName || 'Untitled'
-  let description = ''
-  let tags = []
-  let version = ''
-  let features = []
-  let body = content
+function isValidSkill(fm, body) {
+  const name = fm.name ? String(fm.name).trim() : ''
+  const desc = fm.description ? String(fm.description).trim() : ''
+  // name must exist, description must exist and be meaningful, body must have instructions
+  return name.length >= 2 && desc.length >= 15 && body.trim().length >= 30
+}
 
+// Returns null if the file is not a valid Claude Code skill.
+export function parseSkillMarkdown(content) {
+  // Must have YAML frontmatter — no frontmatter means it's not a skill
   const fmMatch = content.match(/^---[\r\n]([\s\S]*?)[\r\n]---[\r\n]?/)
-  if (fmMatch) {
-    body = content.slice(fmMatch[0].length).trimStart()
-    try {
-      const fm = parseYaml(fmMatch[1])
-      if (fm.name)        name        = String(fm.name).trim()
-      if (fm.description) description = String(fm.description).trim()
-      if (fm.version)     version     = String(fm.version).trim()
-      if (Array.isArray(fm.tags))   tags     = fm.tags.map(String)
-      if (Array.isArray(fm.agents)) features = fm.agents.map(a => `Agent: ${a}`)
-      const tools = fm['allowed-tools']
-      if (Array.isArray(tools)) features = [...features, ...tools.map(t => `Tool: ${t}`)]
-      // tags as comma string fallback
-      if (!tags.length && typeof fm.tags === 'string') {
-        tags = fm.tags.split(',').map(s => s.trim()).filter(Boolean)
-      }
-    } catch {}
-  }
+  if (!fmMatch) return null
 
-  // First H1 as fallback name
-  if (!name || name === fallbackName) {
-    const h1 = body.match(/^#\s+(.+)/m)
-    if (h1) name = h1[1].trim().replace(/[*_`]/g, '')
-  }
+  const body = content.slice(fmMatch[0].length).trimStart()
 
-  // First non-heading text as fallback description
-  if (!description) {
-    const text = body
-      .replace(/```[\s\S]*?```/g, '')
-      .replace(/<[^>]+>[\s\S]*?<\/[^>]+>/g, ' ')
-      .split('\n')
-      .map(l => l.trim())
-      .filter(l => l && !l.startsWith('#') && !l.startsWith('-') && !l.startsWith('|') && l.length > 10)
-    description = text.slice(0, 3).join(' ').slice(0, 500)
-  }
+  let fm = {}
+  try { fm = parseYaml(fmMatch[1]) } catch { return null }
 
-  if (!tags.length) tags = ['claude-code', 'skill']
+  if (!isValidSkill(fm, body)) return null
+
+  const name        = String(fm.name).trim()
+  const description = String(fm.description).trim()
+  const version     = fm.version ? String(fm.version).trim() : ''
+
+  // Tags: use frontmatter tags if present; otherwise derive from the skill name.
+  // Anthropic's official format has no tags field — we infer them from name parts.
+  let tags = []
+  if (Array.isArray(fm.tags)) {
+    tags = fm.tags.map(String).filter(Boolean)
+  } else if (typeof fm.tags === 'string' && fm.tags.trim()) {
+    tags = fm.tags.split(',').map(s => s.trim()).filter(Boolean)
+  }
+  if (!tags.length) {
+    // "code-review-expert" → ["code", "review", "expert"]
+    tags = name.split(/[-_\s]+/).filter(t => t.length > 2)
+  }
+  if (!tags.includes('claude-code')) tags.unshift('claude-code')
+
+  // Features: community format uses agents/allowed-tools;
+  // Anthropic format uses compatibility (optional tools/dependencies).
+  const features = []
+  if (Array.isArray(fm.agents))             features.push(...fm.agents.map(a => `Agent: ${a}`))
+  if (Array.isArray(fm['allowed-tools']))   features.push(...fm['allowed-tools'].map(t => `Tool: ${t}`))
+  if (fm.compatibility && typeof fm.compatibility === 'string')
+    features.push(`Requires: ${fm.compatibility}`)
 
   return {
     name:        name.slice(0, 100),
-    description: description.slice(0, 500),
+    // description is the trigger context — preserve up to 800 chars (richer than a typical readme)
+    description: description.slice(0, 800),
     tags,
     version,
     features,
@@ -110,14 +123,14 @@ export function parseSkillMarkdown(content, fallbackName) {
 // ─── GitHub code search crawler ───────────────────────────────────────────────
 
 export async function crawlGithubSkillFiles(config, {
-  onSkill, onLog, onTotal, onFail = () => {}, checkStop,
+  onSkill, onLog, onTotal, onFail = () => {}, onSkip = () => {}, checkStop,
 }) {
   const query = config.url.trim()
   const headers = githubHeaders()
 
   onLog(`Recherche GitHub code: ${query}`, 'INFO')
 
-  // Build one or two search queries based on the config url
+  // If the query already has filename: use it as-is; otherwise search both casings
   const queries = /filename:/i.test(query)
     ? [query]
     : [`filename:skill.md ${query}`, `filename:SKILL.md ${query}`]
@@ -155,7 +168,7 @@ export async function crawlGithubSkillFiles(config, {
   }
 
   onTotal(items.length)
-  onLog(`${items.length} fichier(s) skill unique(s) à traiter`, 'INFO')
+  onLog(`${items.length} fichier(s) à vérifier (validation frontmatter name+description requise)`, 'INFO')
 
   const BATCH = 8
   for (let i = 0; i < items.length; i += BATCH) {
@@ -176,12 +189,18 @@ export async function crawlGithubSkillFiles(config, {
         if (!r.ok) { onFail(`${item.path} — HTTP ${r.status}`); return }
 
         const content = await r.text()
-        if (!content.trim()) return
+        if (!content.trim()) { onSkip(); return }
 
-        const fallback = item.name.replace(/\.(md|MD)$/, '')
-        const parsed = parseSkillMarkdown(content, fallback)
+        const parsed = parseSkillMarkdown(content)
 
-        onLog(`  [${item.repository.full_name}] ${item.path} → "${parsed.name}"`, 'DEBUG')
+        if (!parsed) {
+          // File exists but has no valid frontmatter name+description — not a Claude Code skill
+          onLog(`  ✗ ${item.repository.full_name}/${item.path} — ignoré (pas de frontmatter name+description)`, 'DEBUG')
+          onSkip()
+          return
+        }
+
+        onLog(`  ✓ [${item.repository.full_name}] ${item.path} → "${parsed.name}"`, 'DEBUG')
 
         onSkill({
           name:         parsed.name,

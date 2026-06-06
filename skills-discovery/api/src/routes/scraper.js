@@ -191,8 +191,14 @@ async function runSession(sid, cfg) {
     db.prepare('UPDATE scraper_sessions SET failed=? WHERE id=?').run(failed, sid)
   }
 
+  // Called when a crawler rejects a candidate that doesn't meet skill criteria
+  const onSkip = () => {
+    progress++
+    db.prepare('UPDATE scraper_sessions SET progress=? WHERE id=?').run(progress, sid)
+  }
+
   try {
-    const ctx = { onSkill, onLog, onTotal, onFail, checkStop, knownUrls, knownNames }
+    const ctx = { onSkill, onLog, onTotal, onFail, onSkip, checkStop, knownUrls, knownNames }
     switch (cfg.type) {
       case 'github-awesome':      await crawlGithubAwesome(cfg, ctx);      break
       case 'github-search':       await crawlGithubSearch(cfg, ctx);       break
