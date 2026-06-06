@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react'
-import { getAdminDbInfo, getAdminTable } from '../api'
+import { getAdminDbInfo, getAdminTable, purgeSessionData } from '../api'
 
 const TRUNCATE = 100
 
@@ -17,13 +17,15 @@ function cellClass(val) {
 }
 
 export default function Crud() {
-  const [dbInfo,   setDbInfo]   = useState(null)
-  const [table,    setTable]    = useState(null)
-  const [data,     setData]     = useState(null)
-  const [page,     setPage]     = useState(1)
-  const [search,   setSearch]   = useState('')
-  const [loading,  setLoading]  = useState(false)
-  const [error,    setError]    = useState(null)
+  const [dbInfo,      setDbInfo]      = useState(null)
+  const [table,       setTable]       = useState(null)
+  const [data,        setData]        = useState(null)
+  const [page,        setPage]        = useState(1)
+  const [search,      setSearch]      = useState('')
+  const [loading,     setLoading]     = useState(false)
+  const [error,       setError]       = useState(null)
+  const [purgeState,  setPurgeState]  = useState('idle')  // idle | confirm | running | done
+  const [purgeResult, setPurgeResult] = useState(null)
 
   // Load DB info once
   useEffect(() => {
@@ -59,6 +61,23 @@ export default function Crud() {
     loadTable()
   }
 
+  const handlePurge = async () => {
+    if (purgeState === 'idle')    { setPurgeState('confirm'); return }
+    if (purgeState === 'confirm') {
+      setPurgeState('running')
+      try {
+        const r = await purgeSessionData()
+        setPurgeResult(r.data)
+        setPurgeState('done')
+        // Refresh DB info to update row counts
+        getAdminDbInfo().then(r => setDbInfo(r.data)).catch(() => {})
+        loadTable()
+      } catch {
+        setPurgeState('idle')
+      }
+    }
+  }
+
   return (
     <div className="min-h-screen bg-gray-950 text-gray-100 flex flex-col">
 
@@ -69,15 +88,49 @@ export default function Crud() {
           <span className="text-gray-600 text-sm">/</span>
           <span className="text-gray-300 text-sm font-semibold">Admin DB</span>
         </div>
-        {dbInfo && (
-          <div className="flex items-center gap-4 text-xs text-gray-500 font-mono flex-wrap">
-            <span>SQLite {dbInfo.sqlite_version}</span>
-            <span className="text-gray-600">·</span>
-            <span>{dbInfo.size_human}</span>
-            <span className="text-gray-600">·</span>
-            <span className="truncate max-w-xs" title={dbInfo.path}>{dbInfo.path}</span>
-          </div>
-        )}
+        <div className="flex items-center gap-4 flex-wrap ml-auto">
+          {dbInfo && (
+            <div className="flex items-center gap-4 text-xs text-gray-500 font-mono">
+              <span>SQLite {dbInfo.sqlite_version}</span>
+              <span className="text-gray-600">·</span>
+              <span>{dbInfo.size_human}</span>
+              <span className="text-gray-600">·</span>
+              <span className="truncate max-w-xs" title={dbInfo.path}>{dbInfo.path}</span>
+            </div>
+          )}
+
+          {purgeState === 'done' && purgeResult && (
+            <span className="text-xs text-emerald-400 font-mono">
+              {purgeResult.sessions_deleted} session(s) · {purgeResult.skills_deleted} skill(s) supprimé(s)
+            </span>
+          )}
+
+          {purgeState === 'confirm' && (
+            <span className="text-xs text-red-400 font-semibold animate-pulse">
+              Supprimer toutes les sessions + skills scrapés ?
+            </span>
+          )}
+
+          <button
+            onClick={handlePurge}
+            disabled={purgeState === 'running'}
+            onBlur={() => { if (purgeState === 'confirm') setPurgeState('idle') }}
+            className={`px-3 py-1.5 rounded text-xs font-semibold transition-colors flex-shrink-0 ${
+              purgeState === 'confirm'
+                ? 'bg-red-600 hover:bg-red-500 text-white'
+                : purgeState === 'running'
+                ? 'bg-gray-700 text-gray-500 cursor-not-allowed'
+                : purgeState === 'done'
+                ? 'bg-emerald-800 hover:bg-emerald-700 text-emerald-200'
+                : 'bg-gray-700 hover:bg-red-900 text-red-400 hover:text-red-300'
+            }`}
+          >
+            {purgeState === 'confirm'  ? 'Confirmer la suppression'
+           : purgeState === 'running'  ? 'Suppression…'
+           : purgeState === 'done'     ? 'Purgé'
+           : 'Purger sessions & skills'}
+          </button>
+        </div>
       </header>
 
       {error && (

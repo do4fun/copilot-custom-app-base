@@ -71,4 +71,17 @@ router.get('/tables/:table', (c) => {
   return c.json({ columns: colNames, rows, total, page, page_size: size, pages: Math.ceil(total / size) })
 })
 
+// ─── Purge sessions + scraped skills ─────────────────────────────────────────
+
+router.post('/purge-sessions', (c) => {
+  const { changes: skills_deleted } = db.prepare(
+    "DELETE FROM skills WHERE source_name IS NOT NULL"
+  ).run()
+  const { changes: sessions_deleted } = db.prepare(
+    "DELETE FROM scraper_sessions"
+  ).run()
+  db.exec("INSERT INTO skills_fts(skills_fts) VALUES('rebuild')")
+  return c.json({ skills_deleted, sessions_deleted })
+})
+
 export default router
