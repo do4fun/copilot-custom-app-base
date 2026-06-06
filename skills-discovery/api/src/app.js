@@ -6,6 +6,7 @@ import collectionsRouter from './routes/collections.js'
 import goalsRouter       from './routes/goals.js'
 import comparatorRouter  from './routes/comparator.js'
 import scraperRouter     from './routes/scraper.js'
+import adminRouter       from './routes/admin.js'
 
 const app = new Hono()
 
@@ -17,6 +18,7 @@ app.route('/api/collections', collectionsRouter)
 app.route('/api/goals',       goalsRouter)
 app.route('/api/comparator',  comparatorRouter)
 app.route('/api/scraper',     scraperRouter)
+app.route('/api/admin',       adminRouter)
 
 app.get('/api/health', (c) => c.json({ status: 'ok', version: '2.0.0', runtime: 'node.js/hono' }))
 

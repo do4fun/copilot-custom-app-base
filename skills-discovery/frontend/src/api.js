@@ -82,4 +82,9 @@ export const stopSession = (id) => api.post(`/scraper/sessions/${id}/stop`)
 export const deleteSession = (id) => api.delete(`/scraper/sessions/${id}`)
 export const clearCompletedSessions = () => api.post('/scraper/sessions/clear-all')
 
+// Admin / CRUD
+export const getAdminDbInfo  = ()                              => api.get('/admin/db-info')
+export const getAdminTable   = (table, page = 1, size = 50, search = '') =>
+  api.get(`/admin/tables/${table}`, { params: { page, size, search: search || undefined } })
+
 export default api
