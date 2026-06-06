@@ -64,60 +64,80 @@ function parseYaml(yaml) {
 // AND the body has substantive instructions. Files that are regular READMEs or
 // docs that happen to be named skill.md are rejected here.
 
-function isValidSkill(fm, body) {
-  const name = fm.name ? String(fm.name).trim() : ''
-  const desc = fm.description ? String(fm.description).trim() : ''
-  // name must exist, description must exist and be meaningful, body must have instructions
-  return name.length >= 2 && desc.length >= 15 && body.trim().length >= 30
-}
+const MIN_DESC_LEN = 15
+const MIN_BODY_LEN = 30
 
-// Returns null if the file is not a valid Claude Code skill.
+// Returns { skill, reason } where skill is null on rejection.
+// reason always describes the outcome (accepted or why rejected).
 export function parseSkillMarkdown(content) {
-  // Must have YAML frontmatter — no frontmatter means it's not a skill
+  // ── 1. Frontmatter presence ───────────────────────────────────────────────
   const fmMatch = content.match(/^---[\r\n]([\s\S]*?)[\r\n]---[\r\n]?/)
-  if (!fmMatch) return null
+  if (!fmMatch)
+    return { skill: null, reason: 'Pas de frontmatter YAML (--- manquant)' }
 
   const body = content.slice(fmMatch[0].length).trimStart()
 
+  // ── 2. YAML parsing ───────────────────────────────────────────────────────
   let fm = {}
-  try { fm = parseYaml(fmMatch[1]) } catch { return null }
+  try { fm = parseYaml(fmMatch[1]) }
+  catch (e) { return { skill: null, reason: `Frontmatter invalide: ${e.message}` } }
 
-  if (!isValidSkill(fm, body)) return null
+  // ── 3. name ───────────────────────────────────────────────────────────────
+  const name = fm.name ? String(fm.name).trim() : ''
+  if (name.length < 2)
+    return { skill: null, reason: 'name absent ou trop court dans le frontmatter' }
 
-  const name        = String(fm.name).trim()
-  const description = String(fm.description).trim()
-  const version     = fm.version ? String(fm.version).trim() : ''
+  // ── 4. description ────────────────────────────────────────────────────────
+  const description = fm.description ? String(fm.description).trim() : ''
+  if (!description)
+    return { skill: null, reason: `description absente du frontmatter (champ obligatoire — mécanisme de déclenchement)` }
+  if (description.length < MIN_DESC_LEN)
+    return { skill: null, reason: `description trop courte: ${description.length} chars (minimum ${MIN_DESC_LEN})` }
 
-  // Tags: use frontmatter tags if present; otherwise derive from the skill name.
-  // Anthropic's official format has no tags field — we infer them from name parts.
+  // ── 5. Body (instructions) ────────────────────────────────────────────────
+  const bodyLen = body.trim().length
+  if (bodyLen < MIN_BODY_LEN)
+    return { skill: null, reason: `body trop court: ${bodyLen} chars (minimum ${MIN_BODY_LEN} — doit contenir les instructions)` }
+
+  // ── 6. Extract optional fields ────────────────────────────────────────────
+  const version = fm.version ? String(fm.version).trim() : ''
+
+  // Tags: from frontmatter or derived from name parts (Anthropic format has none)
   let tags = []
   if (Array.isArray(fm.tags)) {
     tags = fm.tags.map(String).filter(Boolean)
   } else if (typeof fm.tags === 'string' && fm.tags.trim()) {
     tags = fm.tags.split(',').map(s => s.trim()).filter(Boolean)
   }
-  if (!tags.length) {
-    // "code-review-expert" → ["code", "review", "expert"]
+  if (!tags.length)
     tags = name.split(/[-_\s]+/).filter(t => t.length > 2)
-  }
   if (!tags.includes('claude-code')) tags.unshift('claude-code')
 
-  // Features: community format uses agents/allowed-tools;
-  // Anthropic format uses compatibility (optional tools/dependencies).
+  // Features: community format (agents/allowed-tools) or Anthropic format (compatibility)
   const features = []
-  if (Array.isArray(fm.agents))             features.push(...fm.agents.map(a => `Agent: ${a}`))
-  if (Array.isArray(fm['allowed-tools']))   features.push(...fm['allowed-tools'].map(t => `Tool: ${t}`))
+  if (Array.isArray(fm.agents))           features.push(...fm.agents.map(a => `Agent: ${a}`))
+  if (Array.isArray(fm['allowed-tools'])) features.push(...fm['allowed-tools'].map(t => `Tool: ${t}`))
   if (fm.compatibility && typeof fm.compatibility === 'string')
     features.push(`Requires: ${fm.compatibility}`)
 
-  return {
+  const skill = {
     name:        name.slice(0, 100),
-    // description is the trigger context — preserve up to 800 chars (richer than a typical readme)
     description: description.slice(0, 800),
     tags,
     version,
     features,
   }
+
+  const summary = [
+    `name: "${skill.name}"`,
+    `description: ${description.length} chars`,
+    `body: ${bodyLen} chars`,
+    tags.length ? `tags: [${tags.slice(0, 4).join(', ')}]` : null,
+    version ? `version: ${version}` : null,
+    features.length ? `features: ${features.length}` : null,
+  ].filter(Boolean).join(' | ')
+
+  return { skill, reason: `✓ ${summary}` }
 }
 
 // ─── GitHub code search crawler ───────────────────────────────────────────────
@@ -189,29 +209,30 @@ export async function crawlGithubSkillFiles(config, {
         if (!r.ok) { onFail(`${item.path} — HTTP ${r.status}`); return }
 
         const content = await r.text()
-        if (!content.trim()) { onSkip(); return }
-
-        const parsed = parseSkillMarkdown(content)
-
-        if (!parsed) {
-          // File exists but has no valid frontmatter name+description — not a Claude Code skill
-          onLog(`  ✗ ${item.repository.full_name}/${item.path} — ignoré (pas de frontmatter name+description)`, 'DEBUG')
+        if (!content.trim()) {
+          onLog(`  [${item.repository.full_name}/${item.path}] → fichier vide`, 'TRACE')
           onSkip()
           return
         }
 
-        onLog(`  ✓ [${item.repository.full_name}] ${item.path} → "${parsed.name}"`, 'DEBUG')
+        const { skill, reason } = parseSkillMarkdown(content)
+        onLog(`  [${item.repository.full_name}/${item.path}] → ${reason}`, 'TRACE')
+
+        if (!skill) {
+          onSkip()
+          return
+        }
 
         onSkill({
-          name:         parsed.name,
-          description:  parsed.description,
+          name:         skill.name,
+          description:  skill.description,
           source_url:   item.html_url,
           source_name:  `GitHub / ${item.repository.full_name}`,
           category:     config.category || 'Claude Code Skill',
           pricing:      'free',
-          version:      parsed.version,
-          tags:         parsed.tags,
-          features:     parsed.features,
+          version:      skill.version,
+          tags:         skill.tags,
+          features:     skill.features,
           readme:       content.slice(0, 15000),
         })
       } catch (e) {
