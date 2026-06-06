@@ -1,4 +1,4 @@
-export async function crawlNpm(config, { onSkill, onLog, onTotal, checkStop, knownUrls = new Set(), knownNames = new Set() }) {
+export async function crawlNpm(config, { onSkill, onLog, onTotal, onFail = () => {}, checkStop, knownUrls = new Set(), knownNames = new Set() }) {
   const { url, category } = config
   const query = url.startsWith('http') ? new URL(url).searchParams.get('text') || url : url
   onLog(`npm search: ${query}`)

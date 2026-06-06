@@ -32,7 +32,7 @@ function parseAwesomeMarkdown(markdown, category) {
   return results
 }
 
-export async function crawlGithubAwesome(config, { onSkill, onLog, onTotal, checkStop, knownUrls = new Set(), knownNames = new Set() }) {
+export async function crawlGithubAwesome(config, { onSkill, onLog, onTotal, onFail = () => {}, checkStop, knownUrls = new Set(), knownNames = new Set() }) {
   const { url, category } = config
   let rawUrl = url
   const m = url.match(/github\.com\/([^/]+)\/([^/\s?#]+)/)
@@ -48,7 +48,7 @@ export async function crawlGithubAwesome(config, { onSkill, onLog, onTotal, chec
   }
 }
 
-export async function crawlGithubSearch(config, { onSkill, onLog, onTotal, checkStop, knownUrls = new Set(), knownNames = new Set() }) {
+export async function crawlGithubSearch(config, { onSkill, onLog, onTotal, onFail = () => {}, checkStop, knownUrls = new Set(), knownNames = new Set() }) {
   const { url, category } = config
   const query = url.startsWith('http') ? new URL(url).searchParams.get('q') || url : url
   onLog(`GitHub search: ${query}`)

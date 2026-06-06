@@ -174,10 +174,13 @@ function SessionCard({ session, onAction, expanded, onToggle }) {
             </div>
             <div className="flex justify-between text-xs text-gray-400 mb-1">
               <span>{session.progress}/{session.total} répertoriés ({pct}%)</span>
-              <span>
+              <span className="flex gap-2">
                 <span className="text-emerald-400 font-medium">{session.found} nouveaux</span>
                 {session.progress - session.found > 0 && (
-                  <span className="text-gray-500 ml-2">· {session.progress - session.found} existants</span>
+                  <span className="text-gray-500">· {session.progress - session.found} en BD</span>
+                )}
+                {(session.failed ?? 0) > 0 && (
+                  <span className="text-red-400">· {session.failed} échec(s)</span>
                 )}
               </span>
             </div>

@@ -84,6 +84,7 @@ export function initDb() {
       progress INTEGER DEFAULT 0,
       total INTEGER DEFAULT 0,
       found INTEGER DEFAULT 0,
+      failed INTEGER DEFAULT 0,
       logs TEXT DEFAULT '[]',
       started_at TEXT,
       paused_at TEXT,
@@ -124,6 +125,8 @@ export function initDb() {
       VALUES (new.id, new.name, new.description, new.features);
     END;
   `)
+  // Migration: add failed column to existing DBs (no-op if already present)
+  try { db.exec('ALTER TABLE scraper_sessions ADD COLUMN failed INTEGER DEFAULT 0') } catch {}
 }
 
 const DEFAULT_CONFIGS = [

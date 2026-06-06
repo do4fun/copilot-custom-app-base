@@ -40,7 +40,7 @@ function extractSkillFromPage($, request, category, fallbackName) {
   }
 }
 
-export async function crawlGeneric(config, { onSkill, onLog, onTotal, checkStop, knownUrls = new Set(), knownNames = new Set() }) {
+export async function crawlGeneric(config, { onSkill, onLog, onTotal, onFail = () => {}, checkStop, knownUrls = new Set(), knownNames = new Set() }) {
   const { url, category, name: configName } = config
   const rootDomain = new URL(url).hostname
   onLog(`CheerioCrawler → ${url} (root + pages liées, même domaine)`)
@@ -80,7 +80,7 @@ export async function crawlGeneric(config, { onSkill, onLog, onTotal, checkStop,
     },
 
     failedRequestHandler({ request, error }) {
-      onLog(`Échec: ${request.url} — ${error.message}`)
+      onFail(`${request.url} — ${error.message}`)
     },
   })
 

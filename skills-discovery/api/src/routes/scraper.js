@@ -139,8 +139,10 @@ async function runSession(sid, cfg) {
   appendLog(sid, `Inventaire BD: ${knownNames.size} skills déjà enregistrés (${knownUrls.size} URLs connues)`)
 
   const checkStop = () => !!_stopFlags.get(sid)
-  let found = 0
+  let found    = 0
   let progress = 0
+  let failed   = 0
+  let total    = 0
 
   const onSkill = async (item) => {
     await waitIfPaused(sid)
@@ -159,7 +161,6 @@ async function runSession(sid, cfg) {
     const added = upsertSkill(item)
     if (added) {
       found++
-      // Update in-memory inventory so duplicates within the same session are caught
       knownNames.add(normName)
       if (normUrl) knownUrls.add(normUrl)
     }
@@ -169,10 +170,20 @@ async function runSession(sid, cfg) {
   }
 
   const onLog = (msg) => appendLog(sid, msg)
-  const onTotal = (n) => db.prepare('UPDATE scraper_sessions SET total=? WHERE id=?').run(n, sid)
+
+  const onTotal = (n) => {
+    total = n
+    db.prepare('UPDATE scraper_sessions SET total=? WHERE id=?').run(n, sid)
+  }
+
+  const onFail = (msg) => {
+    failed++
+    appendLog(sid, `✗ ${msg}`)
+    db.prepare('UPDATE scraper_sessions SET failed=? WHERE id=?').run(failed, sid)
+  }
 
   try {
-    const ctx = { onSkill, onLog, onTotal, checkStop, knownUrls, knownNames }
+    const ctx = { onSkill, onLog, onTotal, onFail, checkStop, knownUrls, knownNames }
     switch (cfg.type) {
       case 'github-awesome': await crawlGithubAwesome(cfg, ctx); break
       case 'github-search':  await crawlGithubSearch(cfg, ctx);  break
@@ -182,14 +193,20 @@ async function runSession(sid, cfg) {
     }
 
     if (_stopFlags.get(sid)) {
-      db.prepare("UPDATE scraper_sessions SET status='stopped', finished_at=datetime('now') WHERE id=?").run(sid)
+      db.prepare("UPDATE scraper_sessions SET status='stopped', finished_at=datetime('now'), found=?, progress=?, failed=? WHERE id=?").run(found, progress, failed, sid)
       appendLog(sid, 'Arrêt demandé')
     } else {
-      db.prepare("UPDATE scraper_sessions SET status='completed', finished_at=datetime('now'), found=?, progress=? WHERE id=?").run(found, progress, sid)
-      appendLog(sid, `Terminé — ${found} nouveaux · ${progress - found} déjà en BD · ${progress} au total répertoriés`)
+      db.prepare("UPDATE scraper_sessions SET status='completed', finished_at=datetime('now'), found=?, progress=?, failed=? WHERE id=?").run(found, progress, failed, sid)
+      appendLog(sid, [
+        `Terminé`,
+        `${progress - found} déjà en BD`,
+        `${found} nouveaux`,
+        `${failed} échec(s)`,
+        `${total} identifiés pour cette source`,
+      ].join(' · '))
     }
   } catch (e) {
-    db.prepare("UPDATE scraper_sessions SET status='failed', finished_at=datetime('now') WHERE id=?").run(sid)
+    db.prepare("UPDATE scraper_sessions SET status='failed', finished_at=datetime('now'), found=?, progress=?, failed=? WHERE id=?").run(found, progress, failed, sid)
     appendLog(sid, `Erreur fatale: ${e.message}`)
   } finally {
     _stopFlags.delete(sid)
