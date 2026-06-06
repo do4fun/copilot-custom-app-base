@@ -163,6 +163,14 @@ async function runSession(sid, cfg) {
       found++
       knownNames.add(normName)
       if (normUrl) knownUrls.add(normUrl)
+      const tags = (item.tags || []).slice(0, 5).join(', ')
+      appendLog(sid, [
+        `  cat=${item.category || '—'}`,
+        `prix=${item.pricing || '—'}`,
+        `score=${item.popularity_score || 0}`,
+        tags ? `tags=${tags}` : null,
+        normUrl ? `url=${normUrl}` : null,
+      ].filter(Boolean).join(' | '), 'TRACE')
     }
     progress++
     appendLog(sid, added ? `+ ${item.name}` : `~ ${item.name} (existant)`, added ? 'INFO' : 'DEBUG')
