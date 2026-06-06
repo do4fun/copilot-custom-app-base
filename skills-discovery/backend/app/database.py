@@ -121,6 +121,17 @@ async def init_db():
                 created_at TEXT DEFAULT (datetime('now'))
             );
 
+            CREATE TABLE IF NOT EXISTS scraper_configs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                url TEXT NOT NULL,
+                type TEXT DEFAULT 'generic',
+                category TEXT DEFAULT 'AI Coding Tool',
+                is_active INTEGER DEFAULT 1,
+                created_at TEXT DEFAULT (datetime('now')),
+                updated_at TEXT DEFAULT (datetime('now'))
+            );
+
             CREATE VIRTUAL TABLE IF NOT EXISTS skills_fts USING fts5(
                 name, description, features,
                 content=skills, content_rowid=id

@@ -66,11 +66,16 @@ export const decomposeGoal = (goal) =>
 export const compareSkills = (ids) =>
   api.post('/comparator', { skill_ids: ids })
 
-// Scraper
-export const getScrapers = () => api.get('/scraper/scrapers')
+// Scraper configs
+export const getConfigs = () => api.get('/scraper/configs')
+export const createConfig = (data) => api.post('/scraper/configs', data)
+export const updateConfig = (id, data) => api.put(`/scraper/configs/${id}`, data)
+export const deleteConfig = (id) => api.delete(`/scraper/configs/${id}`)
+
+// Scraper sessions
 export const getSessions = () => api.get('/scraper/sessions')
 export const getSession = (id) => api.get(`/scraper/sessions/${id}`)
-export const startSession = (scraper_id) => api.post('/scraper/sessions', { scraper_id })
+export const startSession = (config_id) => api.post('/scraper/sessions', { config_id })
 export const pauseSession = (id) => api.post(`/scraper/sessions/${id}/pause`)
 export const resumeSession = (id) => api.post(`/scraper/sessions/${id}/resume`)
 export const stopSession = (id) => api.post(`/scraper/sessions/${id}/stop`)
