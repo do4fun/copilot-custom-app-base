@@ -173,8 +173,13 @@ function SessionCard({ session, onAction, expanded, onToggle }) {
               {session.finished_at && <span>Terminé: {formatTs(session.finished_at)}</span>}
             </div>
             <div className="flex justify-between text-xs text-gray-400 mb-1">
-              <span>{session.progress}/{session.total} traités ({pct}%)</span>
-              <span className="text-emerald-400 font-medium">{session.found} nouveaux</span>
+              <span>{session.progress}/{session.total} répertoriés ({pct}%)</span>
+              <span>
+                <span className="text-emerald-400 font-medium">{session.found} nouveaux</span>
+                {session.progress - session.found > 0 && (
+                  <span className="text-gray-500 ml-2">· {session.progress - session.found} existants</span>
+                )}
+              </span>
             </div>
             <ProgressBar progress={session.progress} total={session.total} status={session.status} />
           </div>

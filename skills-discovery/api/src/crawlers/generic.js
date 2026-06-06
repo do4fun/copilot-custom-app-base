@@ -55,15 +55,7 @@ export async function crawlGeneric(config, { onSkill, onLog, onTotal, checkStop,
       if (checkStop()) return
 
       const skill = extractSkillFromPage($, request, category, configName)
-      const normName = skill.name.toLowerCase().trim()
-      const normUrl  = skill.source_url.trim()
-
-      if (!knownNames.has(normName) && !knownUrls.has(normUrl)) {
-        onSkill(skill)
-        onLog(`Scraped: ${skill.name}`)
-      } else {
-        onLog(`~ ${skill.name} (déjà en BD, page ignorée)`)
-      }
+      onSkill(skill)
 
       // Follow links only from the root page, restricted to same domain, skipping known URLs
       if (!request.userData.linked) {

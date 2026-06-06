@@ -186,7 +186,7 @@ async function runSession(sid, cfg) {
       appendLog(sid, 'Arrêt demandé')
     } else {
       db.prepare("UPDATE scraper_sessions SET status='completed', finished_at=datetime('now'), found=?, progress=? WHERE id=?").run(found, progress, sid)
-      appendLog(sid, `Terminé — ${found} nouveaux skills ajoutés`)
+      appendLog(sid, `Terminé — ${found} nouveaux · ${progress - found} déjà en BD · ${progress} au total répertoriés`)
     }
   } catch (e) {
     db.prepare("UPDATE scraper_sessions SET status='failed', finished_at=datetime('now') WHERE id=?").run(sid)

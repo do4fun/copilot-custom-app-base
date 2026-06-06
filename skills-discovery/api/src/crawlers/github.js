@@ -40,14 +40,9 @@ export async function crawlGithubAwesome(config, { onSkill, onLog, onTotal, chec
   onLog(`Fetching: ${rawUrl}`)
   const markdown = await fetchText(rawUrl)
   const all = parseAwesomeMarkdown(markdown, category)
-  const items = all.filter(s => {
-    const normName = s.name.toLowerCase().trim()
-    const normUrl  = s.source_url.trim()
-    return !knownNames.has(normName) && !knownUrls.has(normUrl)
-  })
-  onLog(`${all.length} entrées dans le README — ${all.length - items.length} déjà en BD — ${items.length} nouvelles`)
-  onTotal(items.length)
-  for (const s of items) {
+  onLog(`${all.length} entrées dans le README — traitement en cours…`)
+  onTotal(all.length)
+  for (const s of all) {
     if (checkStop()) break
     onSkill(s)
   }
@@ -60,10 +55,9 @@ export async function crawlGithubSearch(config, { onSkill, onLog, onTotal, check
   const apiUrl = `https://api.github.com/search/repositories?q=${encodeURIComponent(query)}&sort=stars&per_page=100`
   const data = await fetchJson(apiUrl)
   const repos = data.items || []
-  const newRepos = repos.filter(r => !knownNames.has(r.name.toLowerCase()) && !knownUrls.has(r.html_url))
-  onLog(`GitHub: ${repos.length} dépôts — ${repos.length - newRepos.length} déjà en BD — ${newRepos.length} nouveaux`)
-  onTotal(newRepos.length)
-  for (const repo of newRepos) {
+  onLog(`GitHub: ${repos.length} dépôts — traitement en cours…`)
+  onTotal(repos.length)
+  for (const repo of repos) {
     if (checkStop()) break
     onSkill({
       name:             repo.name,
