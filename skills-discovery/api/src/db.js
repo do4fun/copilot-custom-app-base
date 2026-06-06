@@ -113,11 +113,12 @@ export function initDb() {
   try { db.exec('ALTER TABLE scraper_sessions ADD COLUMN failed INTEGER DEFAULT 0') } catch {}
   try { db.exec('ALTER TABLE skills ADD COLUMN readme TEXT') } catch {}
 
-  // Add github-skill-files configs for existing installs (idempotent)
+  // Add skill-focused configs for existing installs (idempotent)
   const insConfig = db.prepare('INSERT INTO scraper_configs (name, url, type, category) VALUES (?,?,?,?)')
   for (const c of [
-    { name: 'GitHub — skill.md',  url: 'filename:skill.md language:Markdown',  type: 'github-skill-files', category: 'Claude Code Skill' },
-    { name: 'GitHub — SKILL.md',  url: 'filename:SKILL.md language:Markdown',  type: 'github-skill-files', category: 'Claude Code Skill' },
+    { name: 'GitHub — skill.md',       url: 'filename:skill.md language:Markdown',       type: 'github-skill-files', category: 'Claude Code Skill' },
+    { name: 'GitHub — SKILL.md',       url: 'filename:SKILL.md language:Markdown',       type: 'github-skill-files', category: 'Claude Code Skill' },
+    { name: 'anthropics/skills',        url: 'https://github.com/anthropics/skills',      type: 'github-skill-repo',  category: 'Claude Code Skill' },
   ]) {
     if (!db.prepare('SELECT id FROM scraper_configs WHERE name=?').get(c.name))
       insConfig.run(c.name, c.url, c.type, c.category)
@@ -129,6 +130,7 @@ export function initDb() {
 }
 
 const DEFAULT_CONFIGS = [
+  { name: 'anthropics/skills',                url: 'https://github.com/anthropics/skills',   type: 'github-skill-repo',  category: 'Claude Code Skill' },
   { name: 'GitHub — skill.md',               url: 'filename:skill.md language:Markdown',    type: 'github-skill-files', category: 'Claude Code Skill' },
   { name: 'GitHub — SKILL.md',               url: 'filename:SKILL.md language:Markdown',    type: 'github-skill-files', category: 'Claude Code Skill' },
   { name: 'Awesome MCP Servers',             url: 'https://github.com/punkpeye/awesome-mcp-servers', type: 'github-awesome', category: 'MCP Server' },

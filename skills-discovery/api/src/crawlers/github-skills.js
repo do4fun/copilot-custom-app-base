@@ -140,6 +140,104 @@ export function parseSkillMarkdown(content) {
   return { skill, reason: `✓ ${summary}` }
 }
 
+// ─── GitHub skill repo crawler (Trees API) ───────────────────────────────────
+//
+// For repos that are skill catalogues (e.g. anthropics/skills).
+// Pattern: any blob matching /(SKILL|skill)\.md$/ in the repo tree.
+// Uses the Git Trees API — one call for the full tree, then parallel fetches.
+// More reliable than code search for known repos (no rate-limit on raw content).
+
+export async function crawlGithubSkillRepo(config, {
+  onSkill, onLog, onTotal, onFail = () => {}, onSkip = () => {}, checkStop,
+}) {
+  const m = config.url.match(/github\.com\/([^/]+\/[^/?#]+)/)
+  if (!m) {
+    onLog(`URL invalide — format attendu: https://github.com/{owner}/{repo}`, 'ERROR')
+    return
+  }
+  const repo = m[1].replace(/\.git$/, '')
+  const headers = githubHeaders()
+
+  onLog(`Analyse du repo: ${repo}`, 'INFO')
+
+  // Full recursive tree — one API call
+  const treeUrl = `https://api.github.com/repos/${repo}/git/trees/HEAD?recursive=1`
+  onLog(`> ${treeUrl}`, 'DEBUG')
+
+  let tree = []
+  try {
+    const res = await fetch(treeUrl, { headers, signal: AbortSignal.timeout(20000) })
+    if (!res.ok) {
+      const hint = res.status === 401 ? ' — ajoutez GITHUB_TOKEN dans .env'
+                 : res.status === 403 ? ' — rate-limit GitHub'
+                 : ''
+      onLog(`GitHub API ${res.status}${hint}`, 'ERROR')
+      return
+    }
+    const data = await res.json()
+    tree = data.tree || []
+    if (data.truncated) onLog(`Arbre tronqué (repo > 100 000 fichiers) — résultats partiels`, 'WARN')
+  } catch (e) {
+    onLog(`Erreur trees API: ${e.message}`, 'ERROR')
+    return
+  }
+
+  // Keep only SKILL.md / skill.md blobs
+  const skillFiles = tree.filter(f =>
+    f.type === 'blob' && /(?:^|\/)(SKILL|skill)\.md$/.test(f.path)
+  )
+
+  onLog(`${skillFiles.length} fichier(s) SKILL.md trouvé(s) dans ${repo}`, 'INFO')
+  onTotal(skillFiles.length)
+
+  const BATCH = 8
+  for (let i = 0; i < skillFiles.length; i += BATCH) {
+    if (checkStop()) break
+
+    await Promise.allSettled(skillFiles.slice(i, i + BATCH).map(async (file) => {
+      if (checkStop()) return
+
+      const rawUrl = `https://raw.githubusercontent.com/${repo}/HEAD/${file.path}`
+      onLog(`> ${rawUrl}`, 'TRACE')
+
+      try {
+        const r = await fetch(rawUrl, {
+          headers: { 'User-Agent': 'skillshub-crawler/2.0' },
+          signal: AbortSignal.timeout(8000),
+        })
+        if (!r.ok) { onFail(`${file.path} — HTTP ${r.status}`); return }
+
+        const content = await r.text()
+        if (!content.trim()) {
+          onLog(`  [${file.path}] → fichier vide`, 'TRACE')
+          onSkip()
+          return
+        }
+
+        const { skill, reason } = parseSkillMarkdown(content)
+        onLog(`  [${file.path}] → ${reason}`, 'TRACE')
+
+        if (!skill) { onSkip(); return }
+
+        onSkill({
+          name:         skill.name,
+          description:  skill.description,
+          source_url:   `https://github.com/${repo}/blob/main/${file.path}`,
+          source_name:  `GitHub / ${repo}`,
+          category:     config.category || 'Claude Code Skill',
+          pricing:      'free',
+          version:      skill.version,
+          tags:         skill.tags,
+          features:     skill.features,
+          readme:       content.slice(0, 15000),
+        })
+      } catch (e) {
+        onFail(`${file.path} — ${e.message}`)
+      }
+    }))
+  }
+}
+
 // ─── GitHub code search crawler ───────────────────────────────────────────────
 
 export async function crawlGithubSkillFiles(config, {

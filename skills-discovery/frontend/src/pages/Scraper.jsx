@@ -8,7 +8,8 @@ import {
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const CRAWLER_TYPES = [
-  { value: 'github-skill-files', label: 'GitHub — fichiers skill.md' },
+  { value: 'github-skill-repo',  label: 'GitHub — repo de skills (Trees API)' },
+  { value: 'github-skill-files', label: 'GitHub — recherche skill.md (code search)' },
   { value: 'github-awesome',     label: 'GitHub Awesome List' },
   { value: 'github-search',      label: 'GitHub Search' },
   { value: 'npm',                label: 'npm Registry' },
