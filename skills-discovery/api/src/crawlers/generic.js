@@ -1,5 +1,32 @@
 import { CheerioCrawler, Configuration } from 'crawlee'
 import { URL } from 'url'
+import { parseSkillMarkdown } from './github-skills.js'
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+// Convert a GitHub blob URL for a markdown file to its raw content URL.
+// https://github.com/{owner}/{repo}/blob/{branch}/{path}
+//   → https://raw.githubusercontent.com/{owner}/{repo}/{branch}/{path}
+function toRawGithubUrl(pageUrl) {
+  const m = pageUrl.match(/github\.com\/([^/]+)\/([^/]+)\/blob\/([^/]+)\/(.+)/)
+  if (!m) return null
+  return `https://raw.githubusercontent.com/${m[1]}/${m[2]}/${m[3]}/${m[4]}`
+}
+
+// Look for raw markdown embedded in the page HTML (pre/code blocks that start
+// with a YAML frontmatter delimiter).
+function findEmbeddedMarkdown($) {
+  let found = null
+  $('pre, code').each((_, el) => {
+    if (found) return false
+    const text = $(el).text().trim()
+    if (text.startsWith('---') && text.length > 80) {
+      found = text
+      return false
+    }
+  })
+  return found
+}
 
 function detectPricing(text) {
   const t = text.toLowerCase()
@@ -9,7 +36,8 @@ function detectPricing(text) {
   return 'free'
 }
 
-function extractSkillFromPage($, request, category, fallbackName) {
+// Fallback: extract basic info from HTML meta tags
+function extractFromHtml($, request, category, fallbackName) {
   const title = (
     $('meta[property="og:title"]').attr('content') ||
     $('title').text() ||
@@ -21,7 +49,7 @@ function extractSkillFromPage($, request, category, fallbackName) {
     $('meta[property="og:description"]').attr('content') ||
     $('meta[name="description"]').attr('content') ||
     $('p').first().text() || ''
-  ).trim().slice(0, 500)
+  ).trim().slice(0, 800)
 
   const keywords = ($('meta[name="keywords"]').attr('content') || '')
     .split(',')
@@ -40,10 +68,15 @@ function extractSkillFromPage($, request, category, fallbackName) {
   }
 }
 
-export async function crawlGeneric(config, { onSkill, onLog, onTotal, onFail = () => {}, checkStop, knownUrls = new Set(), knownNames = new Set() }) {
+// ─── Crawler ──────────────────────────────────────────────────────────────────
+
+export async function crawlGeneric(config, {
+  onSkill, onLog, onTotal, onFail = () => {}, onSkip = () => {}, checkStop,
+  knownUrls = new Set(), knownNames = new Set(),
+}) {
   const { url, category, name: configName } = config
   const rootDomain = new URL(url).hostname
-  onLog(`CheerioCrawler → ${url} (root + pages liées, même domaine)`, 'INFO')
+  onLog(`CheerioCrawler → ${url} (domaine: ${rootDomain})`, 'INFO')
 
   Configuration.getGlobalConfig().set('persistStorage', false)
 
@@ -53,19 +86,80 @@ export async function crawlGeneric(config, { onSkill, onLog, onTotal, onFail = (
 
     async requestHandler({ $, request, enqueueLinks }) {
       if (checkStop()) return
-
       onLog(`> ${request.url}`, 'TRACE')
-      const skill = extractSkillFromPage($, request, category, configName)
+
+      let skill = null
+
+      // ── 1. GitHub blob URL for a .md file → fetch raw content and parse ────
+      const rawUrl = toRawGithubUrl(request.url)
+      if (rawUrl && /\.(md|MD)$/.test(rawUrl)) {
+        try {
+          const res = await fetch(rawUrl, {
+            headers: { 'User-Agent': 'skillshub-crawler/2.0' },
+            signal: AbortSignal.timeout(8000),
+          })
+          if (res.ok) {
+            const content = await res.text()
+            const { skill: parsed, reason } = parseSkillMarkdown(content)
+            onLog(`  [raw .md] → ${reason}`, 'TRACE')
+            if (parsed) {
+              skill = {
+                name:         parsed.name,
+                description:  parsed.description,
+                source_url:   request.url,
+                source_name:  'Web',
+                category:     category || 'Claude Code Skill',
+                pricing:      'free',
+                version:      parsed.version,
+                tags:         parsed.tags,
+                features:     parsed.features,
+                readme:       content,
+              }
+            }
+          }
+        } catch (e) {
+          onLog(`  raw fetch error: ${e.message}`, 'DEBUG')
+        }
+      }
+
+      // ── 2. Embedded markdown in HTML (pre/code blocks with YAML frontmatter) ─
+      if (!skill) {
+        const embedded = findEmbeddedMarkdown($)
+        if (embedded) {
+          const { skill: parsed, reason } = parseSkillMarkdown(embedded)
+          onLog(`  [embedded md] → ${reason}`, 'TRACE')
+          if (parsed) {
+            skill = {
+              name:         parsed.name,
+              description:  parsed.description,
+              source_url:   request.url,
+              source_name:  'Web',
+              category:     category || 'Claude Code Skill',
+              pricing:      'free',
+              version:      parsed.version,
+              tags:         parsed.tags,
+              features:     parsed.features,
+              readme:       embedded,
+            }
+          }
+        }
+      }
+
+      // ── 3. Fallback: HTML meta tags extraction ────────────────────────────
+      if (!skill) {
+        skill = extractFromHtml($, request, category, configName)
+        onLog(`  [HTML] name="${skill.name}" desc=${skill.description.length}c`, 'TRACE')
+      }
+
       onSkill(skill)
 
-      // Follow links only from the root page, restricted to same domain, skipping known URLs
+      // Follow links from root page, same domain only
       if (!request.userData.linked) {
         const linked = await enqueueLinks({
           userData: { linked: true },
           transformRequestFunction: (req) => {
             try {
-              const host = new URL(req.url).hostname
-              if (host !== rootDomain) return false
+              if (new URL(req.url).hostname !== rootDomain) return false
               if (knownUrls.has(req.url)) return false
               return req
             } catch {
@@ -74,7 +168,7 @@ export async function crawlGeneric(config, { onSkill, onLog, onTotal, onFail = (
           },
         })
         if (linked?.processedRequests?.length) {
-          onLog(`${linked.processedRequests.length} pages liées trouvées`, 'INFO')
+          onLog(`${linked.processedRequests.length} page(s) liée(s) trouvée(s)`, 'INFO')
           onTotal(1 + linked.processedRequests.length)
         }
       }
