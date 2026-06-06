@@ -21,8 +21,8 @@ router.get('/search', (c) => {
     const term = q.replace(/[^a-zA-Z0-9À-ɏ\s]/g, '') + '*'
     skills = db.prepare(`
       SELECT s.* FROM skills s
-      JOIN skills_fts fts ON fts.rowid=s.id
-      WHERE fts MATCH ? AND s.is_active=1
+      JOIN skills_fts ON skills_fts.rowid=s.id
+      WHERE skills_fts MATCH ? AND s.is_active=1
       ORDER BY bm25(skills_fts) LIMIT 200
     `).all(term)
   } else {
