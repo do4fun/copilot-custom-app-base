@@ -1,5 +1,5 @@
 import { Hono } from 'hono'
-import { db, upsertSkill, appendLog } from '../db.js'
+import { db, upsertSkill, appendLog, getInventory } from '../db.js'
 import { crawlGithubAwesome, crawlGithubSearch } from '../crawlers/github.js'
 import { crawlNpm } from '../crawlers/npm.js'
 import { crawlGeneric } from '../crawlers/generic.js'
@@ -134,14 +134,35 @@ async function runSession(sid, cfg) {
   db.prepare("UPDATE scraper_sessions SET status='running', started_at=datetime('now') WHERE id=?").run(sid)
   appendLog(sid, `Démarrage — type=${cfg.type} url=${cfg.url}`)
 
+  // ── Inventory ────────────────────────────────────────────────────────────────
+  const { urls: knownUrls, names: knownNames } = getInventory()
+  appendLog(sid, `Inventaire BD: ${knownNames.size} skills déjà enregistrés (${knownUrls.size} URLs connues)`)
+
   const checkStop = () => !!_stopFlags.get(sid)
   let found = 0
   let progress = 0
 
   const onSkill = async (item) => {
     await waitIfPaused(sid)
+
+    const normName = (item.name || '').trim().toLowerCase()
+    const normUrl  = (item.source_url || '').trim()
+
+    // Fast in-memory check before hitting the DB
+    if (knownNames.has(normName) || (normUrl && knownUrls.has(normUrl))) {
+      appendLog(sid, `~ ${item.name} (déjà en BD)`)
+      progress++
+      db.prepare('UPDATE scraper_sessions SET progress=? WHERE id=?').run(progress, sid)
+      return
+    }
+
     const added = upsertSkill(item)
-    if (added) found++
+    if (added) {
+      found++
+      // Update in-memory inventory so duplicates within the same session are caught
+      knownNames.add(normName)
+      if (normUrl) knownUrls.add(normUrl)
+    }
     progress++
     appendLog(sid, added ? `+ ${item.name}` : `~ ${item.name} (existant)`)
     db.prepare('UPDATE scraper_sessions SET progress=?, found=? WHERE id=?').run(progress, found, sid)
@@ -151,7 +172,7 @@ async function runSession(sid, cfg) {
   const onTotal = (n) => db.prepare('UPDATE scraper_sessions SET total=? WHERE id=?').run(n, sid)
 
   try {
-    const ctx = { onSkill, onLog, onTotal, checkStop }
+    const ctx = { onSkill, onLog, onTotal, checkStop, knownUrls, knownNames }
     switch (cfg.type) {
       case 'github-awesome': await crawlGithubAwesome(cfg, ctx); break
       case 'github-search':  await crawlGithubSearch(cfg, ctx);  break

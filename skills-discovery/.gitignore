@@ -1,18 +1,8 @@
-# Python
-__pycache__/
-*.py[cod]
-*.pyo
-.venv*/
-venv*/
-env/
-.venv_*/
-*.egg-info/
-dist/
-build/
-
 # Database
 *.db
 *.sqlite
+*.db-shm
+*.db-wal
 
 # Environment
 .env
@@ -21,12 +11,18 @@ build/
 # Node
 node_modules/
 frontend/dist/
+api/storage/
+
+# Python (legacy, keep for branch compatibility)
+__pycache__/
+*.py[cod]
+.venv*/
+venv*/
 
 # OS
 .DS_Store
 Thumbs.db
 
 # IDE
-.vscode/
 .idea/
 *.swp

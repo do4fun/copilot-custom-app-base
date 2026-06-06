@@ -4,9 +4,7 @@ import { fileURLToPath } from 'url'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const DB_PATH = process.env.DB_PATH
-  || process.env.VERCEL
-  ? '/tmp/skills.db'
-  : join(__dirname, '..', '..', 'skills.db')
+  ?? (process.env.VERCEL ? '/tmp/skills.db' : join(__dirname, '..', '..', 'skills.db'))
 
 export const db = new Database(DB_PATH)
 db.pragma('journal_mode = WAL')
@@ -206,6 +204,17 @@ export function upsertSkill(item) {
     if (row) db.prepare('INSERT OR IGNORE INTO skill_tags (skill_id, tag_id) VALUES (?,?)').run(sid, row.id)
   })
   return true
+}
+
+export function getInventory() {
+  const urls = new Set(
+    db.prepare("SELECT source_url FROM skills WHERE source_url != '' AND source_url IS NOT NULL")
+      .all().map(r => r.source_url)
+  )
+  const names = new Set(
+    db.prepare('SELECT LOWER(name) as n FROM skills').all().map(r => r.n)
+  )
+  return { urls, names }
 }
 
 export function appendLog(sessionId, msg) {

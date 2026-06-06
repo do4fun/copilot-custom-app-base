@@ -1,13 +1,13 @@
 {
   "functions": {
-    "api/index.js": {
+    "vercel/index.js": {
       "runtime": "nodejs22.x"
     }
   },
   "routes": [
     {
       "src": "/api/(.*)",
-      "dest": "/api/index.js"
+      "dest": "/vercel/index.js"
     }
   ]
 }

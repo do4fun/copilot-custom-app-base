@@ -7,7 +7,6 @@ const navLinks = [
   { to: '/collections', label: 'Collections' },
   { to: '/comparator', label: 'Comparator' },
   { to: '/scraper', label: 'Scraper' },
-  { to: '/agents',  label: 'Agents' },
 ]
 
 export default function Navbar() {

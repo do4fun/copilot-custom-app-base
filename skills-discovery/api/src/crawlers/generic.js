@@ -40,7 +40,7 @@ function extractSkillFromPage($, request, category, fallbackName) {
   }
 }
 
-export async function crawlGeneric(config, { onSkill, onLog, onTotal, checkStop }) {
+export async function crawlGeneric(config, { onSkill, onLog, onTotal, checkStop, knownUrls = new Set(), knownNames = new Set() }) {
   const { url, category, name: configName } = config
   const rootDomain = new URL(url).hostname
   onLog(`CheerioCrawler → ${url} (root + pages liées, même domaine)`)
@@ -48,7 +48,6 @@ export async function crawlGeneric(config, { onSkill, onLog, onTotal, checkStop 
   Configuration.getGlobalConfig().set('persistStorage', false)
 
   const crawler = new CheerioCrawler({
-    // Root page + all linked pages on the same domain
     maxRequestsPerCrawl: 100,
     requestHandlerTimeoutSecs: 30,
 
@@ -56,18 +55,26 @@ export async function crawlGeneric(config, { onSkill, onLog, onTotal, checkStop 
       if (checkStop()) return
 
       const skill = extractSkillFromPage($, request, category, configName)
-      onSkill(skill)
-      onLog(`Scraped: ${skill.name}`)
+      const normName = skill.name.toLowerCase().trim()
+      const normUrl  = skill.source_url.trim()
 
-      // Follow links only from the root page, restricted to same domain
+      if (!knownNames.has(normName) && !knownUrls.has(normUrl)) {
+        onSkill(skill)
+        onLog(`Scraped: ${skill.name}`)
+      } else {
+        onLog(`~ ${skill.name} (déjà en BD, page ignorée)`)
+      }
+
+      // Follow links only from the root page, restricted to same domain, skipping known URLs
       if (!request.userData.linked) {
         const linked = await enqueueLinks({
           userData: { linked: true },
-          // Stay on the same domain as the root URL
           transformRequestFunction: (req) => {
             try {
               const host = new URL(req.url).hostname
-              return host === rootDomain ? req : false
+              if (host !== rootDomain) return false
+              if (knownUrls.has(req.url)) return false
+              return req
             } catch {
               return false
             }

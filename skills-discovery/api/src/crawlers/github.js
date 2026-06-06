@@ -32,32 +32,38 @@ function parseAwesomeMarkdown(markdown, category) {
   return results
 }
 
-export async function crawlGithubAwesome(config, { onSkill, onLog, onTotal, checkStop }) {
+export async function crawlGithubAwesome(config, { onSkill, onLog, onTotal, checkStop, knownUrls = new Set(), knownNames = new Set() }) {
   const { url, category } = config
   let rawUrl = url
   const m = url.match(/github\.com\/([^/]+)\/([^/\s?#]+)/)
   if (m) rawUrl = `https://raw.githubusercontent.com/${m[1]}/${m[2]}/main/README.md`
   onLog(`Fetching: ${rawUrl}`)
   const markdown = await fetchText(rawUrl)
-  const items = parseAwesomeMarkdown(markdown, category)
+  const all = parseAwesomeMarkdown(markdown, category)
+  const items = all.filter(s => {
+    const normName = s.name.toLowerCase().trim()
+    const normUrl  = s.source_url.trim()
+    return !knownNames.has(normName) && !knownUrls.has(normUrl)
+  })
+  onLog(`${all.length} entrées dans le README — ${all.length - items.length} déjà en BD — ${items.length} nouvelles`)
   onTotal(items.length)
-  onLog(`${items.length} entrées trouvées dans le README`)
   for (const s of items) {
     if (checkStop()) break
     onSkill(s)
   }
 }
 
-export async function crawlGithubSearch(config, { onSkill, onLog, onTotal, checkStop }) {
+export async function crawlGithubSearch(config, { onSkill, onLog, onTotal, checkStop, knownUrls = new Set(), knownNames = new Set() }) {
   const { url, category } = config
   const query = url.startsWith('http') ? new URL(url).searchParams.get('q') || url : url
   onLog(`GitHub search: ${query}`)
   const apiUrl = `https://api.github.com/search/repositories?q=${encodeURIComponent(query)}&sort=stars&per_page=100`
   const data = await fetchJson(apiUrl)
   const repos = data.items || []
-  onTotal(repos.length)
-  onLog(`GitHub: ${repos.length} dépôts`)
-  for (const repo of repos) {
+  const newRepos = repos.filter(r => !knownNames.has(r.name.toLowerCase()) && !knownUrls.has(r.html_url))
+  onLog(`GitHub: ${repos.length} dépôts — ${repos.length - newRepos.length} déjà en BD — ${newRepos.length} nouveaux`)
+  onTotal(newRepos.length)
+  for (const repo of newRepos) {
     if (checkStop()) break
     onSkill({
       name:             repo.name,

@@ -1,4 +1,4 @@
-export async function crawlNpm(config, { onSkill, onLog, onTotal, checkStop }) {
+export async function crawlNpm(config, { onSkill, onLog, onTotal, checkStop, knownUrls = new Set(), knownNames = new Set() }) {
   const { url, category } = config
   const query = url.startsWith('http') ? new URL(url).searchParams.get('text') || url : url
   onLog(`npm search: ${query}`)
@@ -8,9 +8,15 @@ export async function crawlNpm(config, { onSkill, onLog, onTotal, checkStop }) {
   )
   if (!res.ok) throw new Error(`npm API ${res.status}`)
   const data = await res.json()
-  const packages = data.objects || []
+  const allPackages = data.objects || []
+  const packages = allPackages.filter(obj => {
+    const pkg = obj.package
+    const normName = pkg.name.toLowerCase()
+    const npmUrl   = `https://www.npmjs.com/package/${encodeURIComponent(pkg.name)}`
+    return !knownNames.has(normName) && !knownUrls.has(npmUrl)
+  })
+  onLog(`npm: ${allPackages.length} packages — ${allPackages.length - packages.length} déjà en BD — ${packages.length} nouveaux`)
   onTotal(packages.length)
-  onLog(`npm: ${packages.length} packages`)
   for (const obj of packages) {
     if (checkStop()) break
     const pkg = obj.package
