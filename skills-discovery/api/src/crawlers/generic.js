@@ -43,7 +43,7 @@ function extractSkillFromPage($, request, category, fallbackName) {
 export async function crawlGeneric(config, { onSkill, onLog, onTotal, onFail = () => {}, checkStop, knownUrls = new Set(), knownNames = new Set() }) {
   const { url, category, name: configName } = config
   const rootDomain = new URL(url).hostname
-  onLog(`CheerioCrawler → ${url} (root + pages liées, même domaine)`)
+  onLog(`CheerioCrawler → ${url} (root + pages liées, même domaine)`, 'INFO')
 
   Configuration.getGlobalConfig().set('persistStorage', false)
 
@@ -54,6 +54,7 @@ export async function crawlGeneric(config, { onSkill, onLog, onTotal, onFail = (
     async requestHandler({ $, request, enqueueLinks }) {
       if (checkStop()) return
 
+      onLog(`> ${request.url}`, 'TRACE')
       const skill = extractSkillFromPage($, request, category, configName)
       onSkill(skill)
 
@@ -73,7 +74,7 @@ export async function crawlGeneric(config, { onSkill, onLog, onTotal, onFail = (
           },
         })
         if (linked?.processedRequests?.length) {
-          onLog(`${linked.processedRequests.length} pages liées trouvées`)
+          onLog(`${linked.processedRequests.length} pages liées trouvées`, 'INFO')
           onTotal(1 + linked.processedRequests.length)
         }
       }

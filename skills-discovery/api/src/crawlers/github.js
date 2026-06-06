@@ -37,9 +37,16 @@ async function batchFetchReadmes(items, urlKey, onLog, batchSize = 15) {
   const results = new Array(items.length).fill(null)
   for (let i = 0; i < items.length; i += batchSize) {
     const slice = items.slice(i, i + batchSize)
-    const fetched = await Promise.allSettled(slice.map(item => fetchReadme(item[urlKey])))
+    const fetched = await Promise.allSettled(slice.map(async (item) => {
+      const srcUrl = item[urlKey]
+      onLog(`> ${srcUrl}`, 'TRACE')
+      return fetchReadme(srcUrl)
+    }))
     fetched.forEach((r, j) => {
-      if (r.status === 'fulfilled' && r.value) results[i + j] = r.value
+      if (r.status === 'fulfilled' && r.value) {
+        results[i + j] = r.value
+        onLog(`  [${r.value.type}] ${slice[j][urlKey]}`, 'DEBUG')
+      }
     })
   }
   return results
@@ -70,15 +77,15 @@ export async function crawlGithubAwesome(config, { onSkill, onLog, onTotal, onFa
   let rawUrl = url
   const m = url.match(/github\.com\/([^/]+)\/([^/\s?#]+)/)
   if (m) rawUrl = `https://raw.githubusercontent.com/${m[1]}/${m[2]}/main/README.md`
-  onLog(`Fetching: ${rawUrl}`)
+  onLog(`Fetching: ${rawUrl}`, 'DEBUG')
   const markdown = await fetchText(rawUrl)
   const all = parseAwesomeMarkdown(markdown, category)
-  onLog(`${all.length} entrées dans le README — récupération des détails…`)
+  onLog(`${all.length} entrées dans le README — récupération des détails…`, 'INFO')
   onTotal(all.length)
 
   const readmes = await batchFetchReadmes(all, 'source_url', onLog)
   let skillMdCount = readmes.filter(r => r?.type === 'skill.md').length
-  if (skillMdCount) onLog(`${skillMdCount} fichier(s) skill.md trouvés`)
+  if (skillMdCount) onLog(`${skillMdCount} fichier(s) skill.md trouvés`, 'INFO')
 
   for (let i = 0; i < all.length; i++) {
     if (checkStop()) break
@@ -89,11 +96,12 @@ export async function crawlGithubAwesome(config, { onSkill, onLog, onTotal, onFa
 export async function crawlGithubSearch(config, { onSkill, onLog, onTotal, onFail = () => {}, checkStop, knownUrls = new Set(), knownNames = new Set() }) {
   const { url, category } = config
   const query = url.startsWith('http') ? new URL(url).searchParams.get('q') || url : url
-  onLog(`GitHub search: ${query}`)
+  onLog(`GitHub search: ${query}`, 'INFO')
   const apiUrl = `https://api.github.com/search/repositories?q=${encodeURIComponent(query)}&sort=stars&per_page=100`
+  onLog(`> ${apiUrl}`, 'DEBUG')
   const data = await fetchJson(apiUrl)
   const repos = data.items || []
-  onLog(`${repos.length} dépôts — récupération des détails…`)
+  onLog(`${repos.length} dépôts — récupération des détails…`, 'INFO')
   onTotal(repos.length)
 
   // Map repos to objects with source_url for the generic readme fetcher

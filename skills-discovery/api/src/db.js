@@ -213,9 +213,9 @@ export function getInventory() {
   return { urls, names }
 }
 
-export function appendLog(sessionId, msg) {
+export function appendLog(sessionId, msg, level = 'INFO') {
   const row = db.prepare('SELECT logs FROM scraper_sessions WHERE id=?').get(sessionId)
   const logs = JSON.parse(row?.logs || '[]')
-  logs.push({ time: new Date().toISOString(), msg })
-  db.prepare('UPDATE scraper_sessions SET logs=? WHERE id=?').run(JSON.stringify(logs.slice(-200)), sessionId)
+  logs.push({ time: new Date().toISOString(), msg, level })
+  db.prepare('UPDATE scraper_sessions SET logs=? WHERE id=?').run(JSON.stringify(logs.slice(-1000)), sessionId)
 }

@@ -25,6 +25,16 @@ const STATUS_STYLES = {
   stopped:   'bg-gray-700 text-gray-400',
 }
 
+const LOG_LEVELS = ['TRACE', 'DEBUG', 'INFO', 'WARN', 'ERROR']
+const LOG_LEVEL_ORDER = { TRACE: 0, DEBUG: 1, INFO: 2, WARN: 3, ERROR: 4 }
+const LOG_LEVEL_COLORS = {
+  TRACE: 'text-gray-600',
+  DEBUG: 'text-gray-400',
+  INFO:  'text-blue-300',
+  WARN:  'text-yellow-400',
+  ERROR: 'text-red-400',
+}
+
 const TYPE_LABELS = {
   'github-awesome': { label: 'GH Awesome', color: 'bg-gray-700 text-gray-300' },
   'github-search':  { label: 'GH Search',  color: 'bg-gray-700 text-gray-300' },
@@ -148,10 +158,14 @@ function ConfigCard({ config, onLaunch, onEdit, onDelete, isLaunching, isRunning
 }
 
 function SessionCard({ session, onAction, expanded, onToggle }) {
+  const [logLevel, setLogLevel] = React.useState('INFO')
   const isActive = ['running', 'paused'].includes(session.status)
   const isDone   = ['completed', 'failed', 'stopped'].includes(session.status)
   const pct      = session.total > 0 ? Math.round((session.progress / session.total) * 100) : 0
   const typeInfo = TYPE_LABELS[session.source] || { label: session.source, color: 'bg-gray-700 text-gray-300' }
+
+  const minOrder = LOG_LEVEL_ORDER[logLevel] ?? 2
+  const filteredLogs = (session.logs || []).filter(e => (LOG_LEVEL_ORDER[e.level ?? 'INFO'] ?? 2) >= minOrder)
 
   return (
     <div className="bg-gray-800 rounded-xl border border-gray-700 overflow-hidden">
@@ -206,18 +220,32 @@ function SessionCard({ session, onAction, expanded, onToggle }) {
         </div>
       </div>
       {expanded && (
-        <div className="border-t border-gray-700 bg-gray-900 p-3">
-          {session.logs.length === 0 ? (
-            <p className="text-xs text-gray-600 font-mono">Aucun log.</p>
+        <div className="border-t border-gray-700 bg-gray-900 p-3 space-y-2">
+          <div className="flex items-center justify-between">
+            <span className="text-xs text-gray-500 font-mono">{filteredLogs.length} entrée(s)</span>
+            <select
+              value={logLevel}
+              onChange={e => setLogLevel(e.target.value)}
+              className="bg-gray-800 border border-gray-700 rounded text-xs text-gray-300 px-2 py-0.5 focus:outline-none focus:border-indigo-500"
+            >
+              {LOG_LEVELS.map(l => (
+                <option key={l} value={l}>{l}</option>
+              ))}
+            </select>
+          </div>
+          {filteredLogs.length === 0 ? (
+            <p className="text-xs text-gray-600 font-mono">Aucun log pour ce niveau.</p>
           ) : (
-            <div className="max-h-56 overflow-y-auto space-y-0.5">
-              {[...session.logs].reverse().map((entry, i) => {
+            <div className="max-h-72 overflow-y-auto space-y-0.5">
+              {[...filteredLogs].reverse().map((entry, i) => {
+                const level = entry.level ?? 'INFO'
                 const isNew = entry.msg?.startsWith('+')
-                const isErr = /erreur|error|fail/i.test(entry.msg || '')
+                const color = isNew ? 'text-emerald-400' : (LOG_LEVEL_COLORS[level] ?? 'text-gray-400')
                 return (
                   <div key={i} className="flex gap-2 font-mono text-xs leading-5">
                     <span className="text-gray-600 flex-shrink-0 w-16">{(entry.time || '').split('T')[1]?.split('.')[0] || ''}</span>
-                    <span className={isErr ? 'text-red-400' : isNew ? 'text-emerald-400' : 'text-gray-400'}>{entry.msg}</span>
+                    <span className={`flex-shrink-0 w-10 font-semibold ${LOG_LEVEL_COLORS[level] ?? 'text-gray-400'}`}>{level}</span>
+                    <span className={color}>{entry.msg}</span>
                   </div>
                 )
               })}

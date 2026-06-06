@@ -1,23 +1,24 @@
 export async function crawlNpm(config, { onSkill, onLog, onTotal, onFail = () => {}, checkStop, knownUrls = new Set(), knownNames = new Set() }) {
   const { url, category } = config
   const query = url.startsWith('http') ? new URL(url).searchParams.get('text') || url : url
-  onLog(`npm search: ${query}`)
-  const res = await fetch(
-    `https://registry.npmjs.org/-/v1/search?text=${encodeURIComponent(query)}&size=250`,
-    { headers: { 'User-Agent': 'skillshub-crawler/2.0' } },
-  )
+  const searchUrl = `https://registry.npmjs.org/-/v1/search?text=${encodeURIComponent(query)}&size=250`
+  onLog(`npm search: ${query}`, 'INFO')
+  onLog(`> ${searchUrl}`, 'DEBUG')
+  const res = await fetch(searchUrl, { headers: { 'User-Agent': 'skillshub-crawler/2.0' } })
   if (!res.ok) throw new Error(`npm API ${res.status}`)
   const data = await res.json()
   const allPackages = data.objects || []
-  onLog(`npm: ${allPackages.length} packages — traitement en cours…`)
+  onLog(`npm: ${allPackages.length} packages — traitement en cours…`, 'INFO')
   onTotal(allPackages.length)
   for (const obj of allPackages) {
     if (checkStop()) break
     const pkg = obj.package
+    const npmUrl = `https://www.npmjs.com/package/${encodeURIComponent(pkg.name)}`
+    onLog(`> ${npmUrl}`, 'TRACE')
     onSkill({
       name:             pkg.name,
       description:      (pkg.description || '').slice(0, 500),
-      source_url:       `https://www.npmjs.com/package/${encodeURIComponent(pkg.name)}`,
+      source_url:       npmUrl,
       source_name:      'npm',
       category:         category || 'MCP Server',
       pricing:          'free',

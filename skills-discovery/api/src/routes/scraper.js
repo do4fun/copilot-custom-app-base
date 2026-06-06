@@ -132,11 +132,11 @@ async function waitIfPaused(sid) {
 
 async function runSession(sid, cfg) {
   db.prepare("UPDATE scraper_sessions SET status='running', started_at=datetime('now') WHERE id=?").run(sid)
-  appendLog(sid, `Démarrage — type=${cfg.type} url=${cfg.url}`)
+  appendLog(sid, `Démarrage — type=${cfg.type} url=${cfg.url}`, 'INFO')
 
   // ── Inventory ────────────────────────────────────────────────────────────────
   const { urls: knownUrls, names: knownNames } = getInventory()
-  appendLog(sid, `Inventaire BD: ${knownNames.size} skills déjà enregistrés (${knownUrls.size} URLs connues)`)
+  appendLog(sid, `Inventaire BD: ${knownNames.size} skills déjà enregistrés (${knownUrls.size} URLs connues)`, 'DEBUG')
 
   const checkStop = () => !!_stopFlags.get(sid)
   let found    = 0
@@ -152,7 +152,7 @@ async function runSession(sid, cfg) {
 
     // Fast in-memory check before hitting the DB
     if (knownNames.has(normName) || (normUrl && knownUrls.has(normUrl))) {
-      appendLog(sid, `~ ${item.name} (déjà en BD)`)
+      appendLog(sid, `~ ${item.name} (déjà en BD)`, 'DEBUG')
       progress++
       db.prepare('UPDATE scraper_sessions SET progress=? WHERE id=?').run(progress, sid)
       return
@@ -165,11 +165,11 @@ async function runSession(sid, cfg) {
       if (normUrl) knownUrls.add(normUrl)
     }
     progress++
-    appendLog(sid, added ? `+ ${item.name}` : `~ ${item.name} (existant)`)
+    appendLog(sid, added ? `+ ${item.name}` : `~ ${item.name} (existant)`, added ? 'INFO' : 'DEBUG')
     db.prepare('UPDATE scraper_sessions SET progress=?, found=? WHERE id=?').run(progress, found, sid)
   }
 
-  const onLog = (msg) => appendLog(sid, msg)
+  const onLog = (msg, level = 'INFO') => appendLog(sid, msg, level)
 
   const onTotal = (n) => {
     total = n
@@ -194,7 +194,7 @@ async function runSession(sid, cfg) {
 
     if (_stopFlags.get(sid)) {
       db.prepare("UPDATE scraper_sessions SET status='stopped', finished_at=datetime('now'), found=?, progress=?, failed=? WHERE id=?").run(found, progress, failed, sid)
-      appendLog(sid, 'Arrêt demandé')
+      appendLog(sid, 'Arrêt demandé', 'WARN')
     } else {
       db.prepare("UPDATE scraper_sessions SET status='completed', finished_at=datetime('now'), found=?, progress=?, failed=? WHERE id=?").run(found, progress, failed, sid)
       appendLog(sid, [
@@ -203,11 +203,11 @@ async function runSession(sid, cfg) {
         `${found} nouveaux`,
         `${failed} échec(s)`,
         `${total} identifiés pour cette source`,
-      ].join(' · '))
+      ].join(' · '), 'INFO')
     }
   } catch (e) {
     db.prepare("UPDATE scraper_sessions SET status='failed', finished_at=datetime('now'), found=?, progress=?, failed=? WHERE id=?").run(found, progress, failed, sid)
-    appendLog(sid, `Erreur fatale: ${e.message}`)
+    appendLog(sid, `Erreur fatale: ${e.message}`, 'ERROR')
   } finally {
     _stopFlags.delete(sid)
     _pauseFlags.delete(sid)
