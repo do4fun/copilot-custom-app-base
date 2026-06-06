@@ -108,22 +108,6 @@ export function initDb() {
       content=skills, content_rowid=id
     );
 
-    CREATE TRIGGER IF NOT EXISTS skills_ai AFTER INSERT ON skills BEGIN
-      INSERT INTO skills_fts(rowid, name, description, features)
-      VALUES (new.id, new.name, new.description, new.features);
-    END;
-
-    CREATE TRIGGER IF NOT EXISTS skills_ad AFTER DELETE ON skills BEGIN
-      INSERT INTO skills_fts(skills_fts, rowid, name, description, features)
-      VALUES('delete', old.id, old.name, old.description, old.features);
-    END;
-
-    CREATE TRIGGER IF NOT EXISTS skills_au AFTER UPDATE ON skills BEGIN
-      INSERT INTO skills_fts(skills_fts, rowid, name, description, features)
-      VALUES('delete', old.id, old.name, old.description, old.features);
-      INSERT INTO skills_fts(rowid, name, description, features)
-      VALUES (new.id, new.name, new.description, new.features);
-    END;
   `)
   // Migration: add failed column to existing DBs (no-op if already present)
   try { db.exec('ALTER TABLE scraper_sessions ADD COLUMN failed INTEGER DEFAULT 0') } catch {}
@@ -188,13 +172,14 @@ export function upsertSkill(item) {
     db.prepare("UPDATE skills SET last_checked=datetime('now') WHERE id=?").run(existing.id)
     return false
   }
+  const description = (item.description || '').slice(0, 500)
   const features = Array.isArray(item.features) ? JSON.stringify(item.features) : (item.features || '[]')
   const { lastInsertRowid: sid } = db.prepare(`
     INSERT INTO skills (name, description, category, source_url, source_name, pricing, features, version, popularity_score, last_checked, created_at, updated_at)
     VALUES (?,?,?,?,?,?,?,?,?,datetime('now'),datetime('now'),datetime('now'))
   `).run(
     name,
-    (item.description || '').slice(0, 500),
+    description,
     item.category || '',
     item.source_url || '',
     item.source_name || '',
@@ -203,6 +188,7 @@ export function upsertSkill(item) {
     item.version || '',
     parseFloat(item.popularity_score) || 0,
   )
+  db.prepare('INSERT INTO skills_fts(rowid, name, description, features) VALUES (?,?,?,?)').run(sid, name, description, features)
   ;(item.tags || []).forEach(t => {
     const tag = t.toLowerCase().trim()
     if (!tag || tag.length > 40) return
