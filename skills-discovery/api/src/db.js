@@ -113,19 +113,30 @@ export function initDb() {
   try { db.exec('ALTER TABLE scraper_sessions ADD COLUMN failed INTEGER DEFAULT 0') } catch {}
   try { db.exec('ALTER TABLE skills ADD COLUMN readme TEXT') } catch {}
 
+  // Add github-skill-files configs for existing installs (idempotent)
+  const insConfig = db.prepare('INSERT INTO scraper_configs (name, url, type, category) VALUES (?,?,?,?)')
+  for (const c of [
+    { name: 'GitHub — skill.md',  url: 'filename:skill.md language:Markdown',  type: 'github-skill-files', category: 'Claude Code Skill' },
+    { name: 'GitHub — SKILL.md',  url: 'filename:SKILL.md language:Markdown',  type: 'github-skill-files', category: 'Claude Code Skill' },
+  ]) {
+    if (!db.prepare('SELECT id FROM scraper_configs WHERE name=?').get(c.name))
+      insConfig.run(c.name, c.url, c.type, c.category)
+  }
+
   // Rebuild FTS5 index from the skills table so every skill is searchable,
   // including those inserted before the triggers existed or via external tools.
   db.exec("INSERT INTO skills_fts(skills_fts) VALUES('rebuild')")
 }
 
 const DEFAULT_CONFIGS = [
-  { name: 'Awesome MCP Servers',         url: 'https://github.com/punkpeye/awesome-mcp-servers', type: 'github-awesome', category: 'MCP Server' },
-  { name: 'GitHub — topic:mcp-server',   url: 'topic:mcp-server stars:>10',                      type: 'github-search',  category: 'MCP Server' },
-  { name: 'GitHub — model-context-protocol', url: 'topic:model-context-protocol stars:>5',       type: 'github-search',  category: 'MCP Server' },
-  { name: 'npm — @modelcontextprotocol', url: '@modelcontextprotocol',                            type: 'npm',            category: 'MCP Server' },
-  { name: 'npm — mcp-server',            url: 'mcp-server keywords:mcp',                         type: 'npm',            category: 'MCP Server' },
-  { name: 'GitHub — AI Coding Agents',   url: 'ai coding agent llm stars:>100',                  type: 'github-search',  category: 'AI Coding Tool' },
-  { name: 'GitHub — Claude Code tools',  url: 'topic:claude-code stars:>5',                      type: 'github-search',  category: 'Claude Code Skill' },
+  { name: 'GitHub — skill.md',               url: 'filename:skill.md language:Markdown',    type: 'github-skill-files', category: 'Claude Code Skill' },
+  { name: 'GitHub — SKILL.md',               url: 'filename:SKILL.md language:Markdown',    type: 'github-skill-files', category: 'Claude Code Skill' },
+  { name: 'Awesome MCP Servers',             url: 'https://github.com/punkpeye/awesome-mcp-servers', type: 'github-awesome', category: 'MCP Server' },
+  { name: 'GitHub — topic:mcp-server',       url: 'topic:mcp-server stars:>10',             type: 'github-search',  category: 'MCP Server' },
+  { name: 'GitHub — model-context-protocol', url: 'topic:model-context-protocol stars:>5',  type: 'github-search',  category: 'MCP Server' },
+  { name: 'npm — @modelcontextprotocol',     url: '@modelcontextprotocol',                   type: 'npm',            category: 'MCP Server' },
+  { name: 'npm — mcp-server',               url: 'mcp-server keywords:mcp',                 type: 'npm',            category: 'MCP Server' },
+  { name: 'GitHub — AI Coding Agents',       url: 'ai coding agent llm stars:>100',          type: 'github-search',  category: 'AI Coding Tool' },
 ]
 
 const SEED_SKILLS = [

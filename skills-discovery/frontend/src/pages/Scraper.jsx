@@ -8,10 +8,11 @@ import {
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const CRAWLER_TYPES = [
-  { value: 'github-awesome', label: 'GitHub Awesome List' },
-  { value: 'github-search',  label: 'GitHub Search' },
-  { value: 'npm',            label: 'npm Registry' },
-  { value: 'generic',        label: 'Page web générique' },
+  { value: 'github-skill-files', label: 'GitHub — fichiers skill.md' },
+  { value: 'github-awesome',     label: 'GitHub Awesome List' },
+  { value: 'github-search',      label: 'GitHub Search' },
+  { value: 'npm',                label: 'npm Registry' },
+  { value: 'generic',            label: 'Page web générique' },
 ]
 
 const CATEGORIES = ['MCP Server', 'Claude Code Skill', 'AI Coding Tool', 'AI Productivity Tool', 'Software']

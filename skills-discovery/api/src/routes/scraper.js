@@ -1,6 +1,7 @@
 import { Hono } from 'hono'
 import { db, upsertSkill, appendLog, getInventory } from '../db.js'
 import { crawlGithubAwesome, crawlGithubSearch } from '../crawlers/github.js'
+import { crawlGithubSkillFiles } from '../crawlers/github-skills.js'
 import { crawlNpm } from '../crawlers/npm.js'
 import { crawlGeneric } from '../crawlers/generic.js'
 
@@ -193,10 +194,11 @@ async function runSession(sid, cfg) {
   try {
     const ctx = { onSkill, onLog, onTotal, onFail, checkStop, knownUrls, knownNames }
     switch (cfg.type) {
-      case 'github-awesome': await crawlGithubAwesome(cfg, ctx); break
-      case 'github-search':  await crawlGithubSearch(cfg, ctx);  break
-      case 'npm':            await crawlNpm(cfg, ctx);            break
-      case 'generic':        await crawlGeneric(cfg, ctx);        break
+      case 'github-awesome':      await crawlGithubAwesome(cfg, ctx);      break
+      case 'github-search':       await crawlGithubSearch(cfg, ctx);       break
+      case 'github-skill-files':  await crawlGithubSkillFiles(cfg, ctx);   break
+      case 'npm':                 await crawlNpm(cfg, ctx);                 break
+      case 'generic':             await crawlGeneric(cfg, ctx);             break
       default: onLog(`Type inconnu: ${cfg.type}`)
     }
 
