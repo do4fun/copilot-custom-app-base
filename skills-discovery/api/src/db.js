@@ -127,6 +127,10 @@ export function initDb() {
   `)
   // Migration: add failed column to existing DBs (no-op if already present)
   try { db.exec('ALTER TABLE scraper_sessions ADD COLUMN failed INTEGER DEFAULT 0') } catch {}
+
+  // Rebuild FTS5 index from the skills table so every skill is searchable,
+  // including those inserted before the triggers existed or via external tools.
+  db.exec("INSERT INTO skills_fts(skills_fts) VALUES('rebuild')")
 }
 
 const DEFAULT_CONFIGS = [
