@@ -15,14 +15,29 @@ async function fetchJson(url) {
 }
 
 // Try skill.md first (Claude Code skill format), then README.md.
-// Returns { type, content } or null. Works for any github.com URL.
+// Returns { type, content, blobUrl? } or null. Works for any github.com URL,
+// including directory URLs (/tree/branch/path) — looks inside the subdirectory.
 async function fetchReadme(githubUrl) {
   const m = (githubUrl || '').match(/github\.com\/([^/]+)\/([^/\s?#]+)/)
   if (!m) return null
-  const base = `https://raw.githubusercontent.com/${m[1]}/${m[2]}/main`
-  // skill.md: full content (no limit — it's the skill definition itself)
+  const [, owner, repo] = m
+
+  // Detect subdirectory path from tree/ URLs: /tree/{branch}/{subpath}
+  const treeM = githubUrl.match(/\/tree\/[^/]+\/([^?#]+)/)
+  const subpath = treeM ? treeM[1].replace(/\/$/, '') : ''
+
+  const base = subpath
+    ? `https://raw.githubusercontent.com/${owner}/${repo}/main/${subpath}`
+    : `https://raw.githubusercontent.com/${owner}/${repo}/main`
+
+  // In a subdirectory, try SKILL.md (uppercase Anthropic convention) before skill.md
+  // skill.md: full content — it's the skill definition itself
   // README.md: cap at 20 000 chars (READMEs can be multi-MB)
-  for (const [file, maxLen] of [['skill.md', Infinity], ['README.md', 20000]]) {
+  const filesToTry = subpath
+    ? [['SKILL.md', Infinity], ['skill.md', Infinity], ['README.md', 20000]]
+    : [['skill.md', Infinity],                         ['README.md', 20000]]
+
+  for (const [file, maxLen] of filesToTry) {
     try {
       const res = await fetch(`${base}/${file}`, {
         ...FETCH_OPTS,
@@ -30,7 +45,13 @@ async function fetchReadme(githubUrl) {
       })
       if (res.ok) {
         const text = await res.text()
-        return { type: file, content: maxLen === Infinity ? text : text.slice(0, maxLen) }
+        const content = maxLen === Infinity ? text : text.slice(0, maxLen)
+        // When found inside a subdirectory, provide the corrected blob URL so
+        // source_url points to the actual file, not the directory.
+        const blobUrl = subpath
+          ? `https://github.com/${owner}/${repo}/blob/main/${subpath}/${file}`
+          : null
+        return { type: file, content, blobUrl }
       }
     } catch {}
   }
@@ -94,7 +115,10 @@ export async function crawlGithubAwesome(config, { onSkill, onLog, onTotal, onFa
 
   for (let i = 0; i < all.length; i++) {
     if (checkStop()) break
-    onSkill({ ...all[i], readme: readmes[i]?.content || '' })
+    const readme = readmes[i]
+    // If skill found inside a subdirectory, correct source_url to the actual file
+    const source_url = readme?.blobUrl || all[i].source_url
+    onSkill({ ...all[i], source_url, readme: readme?.content || '' })
   }
 }
 
@@ -118,16 +142,19 @@ export async function crawlGithubSearch(config, { onSkill, onLog, onTotal, onFai
   for (let i = 0; i < repos.length; i++) {
     if (checkStop()) break
     const repo = repos[i]
+    const readme = readmes[i]
+    // If a skill file was found inside a subdirectory, correct source_url to it
+    const source_url = readme?.blobUrl || repo.html_url
     onSkill({
       name:             repo.name,
       description:      (repo.description || '').slice(0, 500),
-      source_url:       repo.html_url,
+      source_url,
       source_name:      'GitHub',
       category:         category || 'AI Coding Tool',
       pricing:          'free',
       popularity_score: parseFloat(Math.min(9.9, repo.stargazers_count / 1000).toFixed(2)),
       tags:             (repo.topics || []).slice(0, 10),
-      readme:           readmes[i]?.content || '',
+      readme:           readme?.content || '',
     })
   }
 }
