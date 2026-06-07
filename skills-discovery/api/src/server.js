@@ -5,12 +5,19 @@ import { join, dirname } from 'path'
 import { fileURLToPath } from 'url'
 import { existsSync } from 'fs'
 import app from './app.js'
-import { initDb, seedData } from './db.js'
+import { initDb, seedData, db } from './db.js'
+import { initVectorDb, syncMissingVectors } from './vector-db.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 
 initDb()
 seedData()
+initVectorDb()
+
+// Vectorise existing skills in the background — downloads model (~23 MB) on first run
+syncMissingVectors(db)
+  .then(n => { if (n > 0) console.log(`Vector DB: ${n} skill(s) vectorisé(s)`) })
+  .catch(e => console.warn('Vector DB sync (non-fatal):', e.message))
 
 // Serve frontend static files if built
 const frontendDist = join(__dirname, '..', '..', 'frontend', 'dist')

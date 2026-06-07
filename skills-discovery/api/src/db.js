@@ -212,7 +212,8 @@ export function upsertSkill(item) {
     const row = db.prepare('SELECT id FROM tags WHERE name=?').get(tag)
     if (row) db.prepare('INSERT OR IGNORE INTO skill_tags (skill_id, tag_id) VALUES (?,?)').run(sid, row.id)
   })
-  return true
+  // Return the new skill ID (truthy) so callers can trigger vector indexing
+  return Number(sid)
 }
 
 export function getInventory() {

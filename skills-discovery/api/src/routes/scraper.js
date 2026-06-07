@@ -1,5 +1,6 @@
 import { Hono } from 'hono'
 import { db, upsertSkill, appendLog, getInventory } from '../db.js'
+import { upsertSkillVector } from '../vector-db.js'
 import { crawlGithubAwesome, crawlGithubSearch } from '../crawlers/github.js'
 import { crawlGithubSkillFiles, crawlGithubSkillRepo } from '../crawlers/github-skills.js'
 import { crawlNpm } from '../crawlers/npm.js'
@@ -172,6 +173,9 @@ async function runSession(sid, cfg) {
         tags ? `tags=${tags}` : null,
         normUrl ? `url=${normUrl}` : null,
       ].filter(Boolean).join(' | '), 'TRACE')
+      // Fire-and-forget — vectorise the new skill without blocking the session
+      upsertSkillVector(added, item, item.tags || [])
+        .catch(e => appendLog(sid, `vector: ${e.message}`, 'DEBUG'))
     }
     progress++
     appendLog(sid, added ? `+ ${item.name}` : `~ ${item.name} (existant)`, added ? 'INFO' : 'DEBUG')
