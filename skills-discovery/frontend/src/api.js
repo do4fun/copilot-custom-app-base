@@ -59,8 +59,8 @@ export const removeFromCollection = (collectionId, skillId) =>
 export const getFavorites = () => api.get('/collections/favorites/list')
 
 // Goals
-export const decomposeGoal = (goal) =>
-  api.post('/goals/decompose', { goal })
+export const decomposeGoal = (goal, source = 'sqlite') =>
+  api.post('/goals/decompose', { goal, source })
 
 // Comparator
 export const compareSkills = (ids) =>
@@ -87,5 +87,8 @@ export const getAdminDbInfo     = ()                              => api.get('/a
 export const getAdminTable      = (table, page = 1, size = 50, search = '') =>
   api.get(`/admin/tables/${table}`, { params: { page, size, search: search || undefined } })
 export const purgeSessionData   = ()                              => api.post('/admin/purge-sessions')
+
+// Vector DB
+export const syncVectorDb       = ()                              => api.post('/semantic-search/sync')
 
 export default api

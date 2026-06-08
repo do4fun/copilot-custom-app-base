@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react'
 import {
   getConfigs, createConfig, updateConfig, deleteConfig,
   getSessions, startSession, pauseSession, resumeSession, stopSession,
-  deleteSession, clearCompletedSessions,
+  deleteSession, clearCompletedSessions, syncVectorDb,
 } from '../api'
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -270,7 +270,9 @@ export default function Scraper() {
   const [launching, setLaunching]   = useState(null)
   const [showForm, setShowForm]     = useState(false)
   const [editingConfig, setEditing] = useState(null)
-  const [lastRefresh, setLastRefresh] = useState(null)
+  const [lastRefresh, setLastRefresh]   = useState(null)
+  const [syncState,   setSyncState]     = useState('idle')   // idle | running | done
+  const [syncResult,  setSyncResult]    = useState(null)
 
   const hasActive    = sessions.some(s => ['running', 'paused'].includes(s.status))
   const hasCompleted = sessions.some(s => ['completed', 'failed', 'stopped'].includes(s.status))
@@ -362,6 +364,19 @@ export default function Scraper() {
   const toggleExpand = (id) =>
     setExpanded(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n })
 
+  const handleSyncVectors = async () => {
+    if (syncState === 'running') return
+    setSyncState('running')
+    setSyncResult(null)
+    try {
+      const r = await syncVectorDb()
+      setSyncResult(r.data)
+      setSyncState('done')
+    } catch {
+      setSyncState('idle')
+    }
+  }
+
   if (loading) return (
     <div className="flex items-center justify-center py-32">
       <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-indigo-500" />
@@ -391,6 +406,25 @@ export default function Scraper() {
             </span>
           )}
           {lastRefresh && <span className="text-xs text-gray-600">{lastRefresh.toLocaleTimeString()}</span>}
+
+          {syncState === 'done' && syncResult && (
+            <span className="text-xs text-violet-400 font-mono">{syncResult.synced} skill(s) vectorisé(s)</span>
+          )}
+          <button
+            onClick={handleSyncVectors}
+            disabled={syncState === 'running'}
+            title="Vectoriser les skills manquants dans la BD vectorielle (POST /semantic-search/sync)"
+            className={`px-3 py-1.5 text-sm rounded-lg transition-colors ${
+              syncState === 'running'
+                ? 'bg-gray-700 text-gray-500 cursor-not-allowed'
+                : syncState === 'done'
+                ? 'bg-violet-900 hover:bg-violet-800 text-violet-200'
+                : 'bg-gray-700 hover:bg-violet-900 text-violet-300 hover:text-violet-200'
+            }`}
+          >
+            {syncState === 'running' ? 'Vectorisation…' : syncState === 'done' ? 'BD vectorielle à jour' : 'Sync vecteurs'}
+          </button>
+
           <button onClick={init} className="px-3 py-1.5 text-sm bg-gray-700 hover:bg-gray-600 text-gray-300 rounded-lg transition-colors">Rafraîchir</button>
         </div>
       </div>

@@ -1,6 +1,7 @@
 import { Hono } from 'hono'
 import Anthropic from '@anthropic-ai/sdk'
 import { db } from '../db.js'
+import { semanticSearch } from '../vector-db.js'
 
 const router = new Hono()
 
@@ -28,14 +29,24 @@ function ruleBasedFallback(goal) {
 }
 
 router.post('/decompose', async (c) => {
-  const { goal } = await c.req.json()
+  const { goal, source = 'sqlite' } = await c.req.json()
   if (!goal?.trim()) return c.json({ error: 'goal requis' }, 422)
+
+  // Fetch skills context based on selected source
+  let allSkills
+  if (source === 'sqlite-vector') {
+    const hits = semanticSearch(goal, 20)
+    allSkills = hits
+      .map(h => db.prepare('SELECT name, category, description FROM skills WHERE id=? AND is_active=1').get(h.skill_id))
+      .filter(Boolean)
+  } else {
+    allSkills = db.prepare('SELECT name, category, description FROM skills WHERE is_active=1 ORDER BY popularity_score DESC LIMIT 50').all()
+  }
 
   const apiKey = process.env.ANTHROPIC_API_KEY
   if (apiKey) {
     try {
       const client = new Anthropic({ apiKey })
-      const allSkills = db.prepare('SELECT name, category, description FROM skills WHERE is_active=1 ORDER BY popularity_score DESC LIMIT 50').all()
       const skillList = allSkills.map(s => `- ${s.name} (${s.category})`).join('\n')
 
       const message = await client.messages.create({
@@ -67,13 +78,13 @@ Respond with valid JSON only (no markdown):
         skills: (t.skill_names || []).map(n => db.prepare('SELECT * FROM skills WHERE LOWER(name)=LOWER(?)').get(n)).filter(Boolean),
       }))
       const allSkillRefs = [...new Map(tasks.flatMap(t => t.skills).map(s => [s.id, s])).values()]
-      return c.json({ goal, tasks, skills: allSkillRefs, summary: parsed.summary, method: 'claude' })
+      return c.json({ goal, tasks, skills: allSkillRefs, summary: parsed.summary, method: 'claude', source })
     } catch {
       // fall through to rule-based
     }
   }
 
-  return c.json(ruleBasedFallback(goal))
+  return c.json({ ...ruleBasedFallback(goal), source })
 })
 
 export default router

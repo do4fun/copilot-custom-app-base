@@ -25,10 +25,11 @@ function SkeletonTask() {
 }
 
 export default function Goals() {
-  const [goal, setGoal] = useState('')
+  const [goal,    setGoal]    = useState('')
+  const [source,  setSource]  = useState('sqlite')
   const [loading, setLoading] = useState(false)
-  const [error, setError] = useState(null)
-  const [result, setResult] = useState(null)
+  const [error,   setError]   = useState(null)
+  const [result,  setResult]  = useState(null)
   const navigate = useNavigate()
 
   const handleSubmit = async (e) => {
@@ -38,7 +39,7 @@ export default function Goals() {
     setError(null)
     setResult(null)
     try {
-      const res = await decomposeGoal(goal.trim())
+      const res = await decomposeGoal(goal.trim(), source)
       setResult(res.data)
     } catch (err) {
       setError(
@@ -69,6 +70,35 @@ export default function Goals() {
       {/* Input form */}
       <div className="bg-gray-800 border border-gray-700 rounded-xl p-5">
         <form onSubmit={handleSubmit} className="space-y-4">
+
+          {/* Source selector */}
+          <div className="flex items-center gap-3">
+            <span className="text-xs text-gray-500 font-medium flex-shrink-0">Data source :</span>
+            <div className="flex bg-gray-900 border border-gray-700 rounded-lg p-0.5 gap-0.5">
+              {[
+                { value: 'sqlite',        label: 'SQLite',        desc: 'Top 50 skills par popularité' },
+                { value: 'sqlite-vector', label: 'SQLite-vector', desc: 'Top 20 skills par pertinence sémantique' },
+              ].map(opt => (
+                <button
+                  key={opt.value}
+                  type="button"
+                  onClick={() => setSource(opt.value)}
+                  title={opt.desc}
+                  className={`px-3 py-1 rounded-md text-xs font-medium transition-colors ${
+                    source === opt.value
+                      ? 'bg-indigo-700 text-white shadow-sm'
+                      : 'text-gray-400 hover:text-gray-200'
+                  }`}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+            <span className="text-xs text-gray-600 italic">
+              {source === 'sqlite-vector' ? 'Top 20 par pertinence sémantique' : 'Top 50 par popularité'}
+            </span>
+          </div>
+
           <div>
             <label className="block text-sm font-medium text-gray-300 mb-2">
               What do you want to accomplish?
@@ -161,9 +191,18 @@ export default function Goals() {
           )}
 
           {/* Goal */}
-          <h2 className="text-lg font-semibold text-white">
-            Tasks for: <span className="text-indigo-300">"{result.goal}"</span>
-          </h2>
+          <div className="flex items-center gap-3 flex-wrap">
+            <h2 className="text-lg font-semibold text-white">
+              Tasks for: <span className="text-indigo-300">"{result.goal}"</span>
+            </h2>
+            <span className={`text-xs px-2 py-0.5 rounded font-mono flex-shrink-0 ${
+              result.source === 'sqlite-vector'
+                ? 'bg-violet-900/50 text-violet-300 border border-violet-700'
+                : 'bg-gray-900 text-gray-500 border border-gray-700'
+            }`}>
+              {result.source || 'sqlite'}
+            </span>
+          </div>
 
           {/* Tasks */}
           {result.tasks.map((task, idx) => (
