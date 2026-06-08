@@ -32,6 +32,8 @@ export const updateSkill = (id, data) => api.put(`/skills/${id}`, data)
 export const deleteSkill = (id) => api.delete(`/skills/${id}`)
 
 export const toggleFavorite = (id) => api.post(`/skills/${id}/favorite`)
+export const setSkillActive = (id, isActive) =>
+  api.patch(`/skills/${id}/active`, { is_active: isActive ? 1 : 0 })
 
 export const addNote = (id, content) =>
   api.post(`/skills/${id}/notes`, { content })

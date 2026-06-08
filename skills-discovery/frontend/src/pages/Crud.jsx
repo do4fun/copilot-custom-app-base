@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react'
-import { getAdminDbInfo, getAdminTable, purgeSessionData } from '../api'
+import { getAdminDbInfo, getAdminTable, purgeSessionData, setSkillActive } from '../api'
 
 const TRUNCATE = 100
 
@@ -14,6 +14,37 @@ function cellClass(val) {
   if (val === null || val === undefined) return 'text-gray-600'
   if (typeof val === 'number') return 'text-blue-300 text-right font-mono'
   return 'text-gray-200'
+}
+
+function ActiveToggle({ skillId, isActive, onToggle }) {
+  const [pending, setPending] = useState(false)
+
+  const handleClick = async () => {
+    if (pending) return
+    setPending(true)
+    await onToggle(skillId, isActive)
+    setPending(false)
+  }
+
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={!!isActive}
+      onClick={handleClick}
+      disabled={pending}
+      title={isActive ? 'Actif — cliquer pour désactiver' : 'Inactif — cliquer pour activer'}
+      className={`relative inline-flex h-5 w-9 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 focus:outline-none disabled:opacity-50 ${
+        isActive ? 'bg-indigo-600' : 'bg-gray-600'
+      }`}
+    >
+      <span
+        className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow transition duration-200 ${
+          isActive ? 'translate-x-4' : 'translate-x-0'
+        }`}
+      />
+    </button>
+  )
 }
 
 export default function Crud() {
@@ -59,6 +90,23 @@ export default function Crud() {
     e.preventDefault()
     setPage(1)
     loadTable()
+  }
+
+  // Optimistic toggle for skills.is_active
+  const handleToggleActive = async (skillId, currentValue) => {
+    const newValue = currentValue ? 0 : 1
+    setData(prev => ({
+      ...prev,
+      rows: prev.rows.map(r => r.id === skillId ? { ...r, is_active: newValue } : r),
+    }))
+    try {
+      await setSkillActive(skillId, newValue)
+    } catch {
+      setData(prev => ({
+        ...prev,
+        rows: prev.rows.map(r => r.id === skillId ? { ...r, is_active: currentValue } : r),
+      }))
+    }
   }
 
   const handlePurge = async () => {
@@ -231,11 +279,17 @@ export default function Crud() {
                 <tbody>
                   {data.rows.map((row, i) => (
                     <tr key={i} className={`border-b border-gray-800 hover:bg-gray-800/50 transition-colors ${i % 2 === 0 ? 'bg-gray-950' : 'bg-gray-900'}`}>
-                      {data.columns.map(col => (
-                        <td key={col} className={`px-3 py-1.5 align-top border-r border-gray-800 last:border-r-0 font-mono max-w-xs ${cellClass(row[col])}`}>
-                          {truncate(row[col])}
-                        </td>
-                      ))}
+                      {data.columns.map(col => {
+                        const isActiveToggle = table === 'skills' && col === 'is_active'
+                        return (
+                          <td key={col} className={`px-3 py-1.5 align-middle border-r border-gray-800 last:border-r-0 font-mono max-w-xs ${isActiveToggle ? '' : cellClass(row[col])}`}>
+                            {isActiveToggle
+                              ? <ActiveToggle skillId={row.id} isActive={row[col]} onToggle={handleToggleActive} />
+                              : truncate(row[col])
+                            }
+                          </td>
+                        )
+                      })}
                     </tr>
                   ))}
                 </tbody>

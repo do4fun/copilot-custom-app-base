@@ -51,6 +51,16 @@ router.delete('/:id', (c) => {
   return c.body(null, 204)
 })
 
+router.patch('/:id/active', async (c) => {
+  const id = Number(c.req.param('id'))
+  if (!db.prepare('SELECT id FROM skills WHERE id=?').get(id))
+    return c.json({ error: 'Not found' }, 404)
+  const { is_active } = await c.req.json()
+  db.prepare("UPDATE skills SET is_active=?, updated_at=datetime('now') WHERE id=?")
+    .run(is_active ? 1 : 0, id)
+  return c.json({ id, is_active: is_active ? 1 : 0 })
+})
+
 router.post('/:id/favorite', (c) => {
   const id = Number(c.req.param('id'))
   const existing = db.prepare('SELECT 1 FROM favorites WHERE skill_id=?').get(id)
