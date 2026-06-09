@@ -92,6 +92,13 @@ router.post('/decompose', async (c) => {
         .map(s => `- ${s.name} (${s.category})${s.description ? ': ' + s.description.slice(0, 120) : ''}`)
         .join('\n')
 
+      // Log skills being sent to the LLM
+      console.log(`\n[goals/decompose] goal="${goal}" source=${source}`)
+      console.log(`[goals/decompose] ${allSkills.length} skill(s) envoyé(s) au LLM :`)
+      allSkills.forEach((s, i) =>
+        console.log(`  ${String(i + 1).padStart(2)}. [${s.category}] ${s.name}`)
+      )
+
       // System prompt: CLAUDE.md expert persona or minimal fallback
       const systemPrompt = EXPERT_SYSTEM || [
         'You are a senior IT analyst specialized in web solution integration.',
