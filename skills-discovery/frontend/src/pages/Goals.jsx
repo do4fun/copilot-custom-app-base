@@ -178,57 +178,134 @@ export default function Goals() {
         </div>
       )}
 
-      {/* Results — flat list */}
+      {/* Results */}
       {result && !loading && (
-        <div className="space-y-1">
+        <div className="space-y-6">
 
           {/* Summary */}
           {result.summary && (
             <p className="text-gray-400 text-sm pb-4 border-b border-gray-800">{result.summary}</p>
           )}
 
+          {/* Architecture + Tech Stack */}
+          {(result.architecture || result.tech_stack?.length > 0) && (
+            <div className="bg-gray-800/60 border border-gray-700 rounded-xl p-4 space-y-3">
+              {result.architecture && (
+                <div>
+                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Architecture</p>
+                  <p className="text-gray-300 text-sm">{result.architecture}</p>
+                </div>
+              )}
+              {result.tech_stack?.length > 0 && (
+                <div>
+                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Tech Stack</p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {result.tech_stack.map((t, i) => (
+                      <span key={i} className="px-2 py-0.5 rounded-md bg-gray-900 border border-gray-700 text-xs text-gray-300">{t}</span>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {result.analyst_notes && (
+                <div>
+                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Notes analyste</p>
+                  <p className="text-gray-400 text-xs italic">{result.analyst_notes}</p>
+                </div>
+              )}
+            </div>
+          )}
+
           {/* Steps */}
-          {(result.steps || []).map((step, si) => (
-            <div key={si} className={`${si > 0 ? 'pt-5' : 'pt-4'}`}>
+          <div className="space-y-1">
+            {(result.steps || []).map((step, si) => (
+              <div key={si} className={`${si > 0 ? 'pt-5' : 'pt-2'}`}>
 
-              {/* Step label */}
-              <div className="flex items-center gap-3 mb-3">
-                <span className="w-6 h-6 rounded-full bg-indigo-900 border border-indigo-700 flex items-center justify-center text-indigo-300 text-xs font-bold flex-shrink-0">
-                  {step.step}
-                </span>
-                <span className="text-white font-semibold text-sm">{step.title}</span>
+                {/* Step label */}
+                <div className="flex items-center gap-3 mb-3">
+                  <span className="w-6 h-6 rounded-full bg-indigo-900 border border-indigo-700 flex items-center justify-center text-indigo-300 text-xs font-bold flex-shrink-0">
+                    {step.step}
+                  </span>
+                  <span className="text-white font-semibold text-sm">{step.title}</span>
+                  {step.role && (
+                    <span className="px-1.5 py-0.5 rounded text-xs bg-gray-800 text-gray-500 border border-gray-700">{step.role}</span>
+                  )}
+                </div>
+
+                {/* Tools */}
+                <div className="ml-9 space-y-2">
+                  {(step.tools || []).map((tool, ti) => (
+                    <div key={ti} className="group rounded-lg border border-transparent hover:border-gray-700 hover:bg-gray-800/60 transition-all px-3 py-2">
+                      <div className="flex items-start gap-2">
+                        <span className={`mt-0.5 w-1.5 h-1.5 rounded-full flex-shrink-0 ${tool.type === 'user' ? 'bg-emerald-500' : 'bg-indigo-500'}`} />
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            {tool.skill?.id
+                              ? <button onClick={() => navigate(`/skill/${tool.skill.id}`)} className="text-indigo-400 hover:text-indigo-300 hover:underline text-sm font-medium text-left">{tool.name}</button>
+                              : <span className="text-gray-200 text-sm font-medium">{tool.name}</span>
+                            }
+                            <span className={`text-xs px-1.5 py-0.5 rounded ${tool.type === 'user' ? 'bg-emerald-900/40 text-emerald-400 border border-emerald-800' : 'bg-indigo-900/40 text-indigo-400 border border-indigo-800'}`}>
+                              {tool.type === 'user' ? 'runtime' : 'dev'}
+                            </span>
+                            {!tool.in_db && tool.in_db !== undefined && (
+                              <span className="text-xs text-gray-600 italic">externe</span>
+                            )}
+                          </div>
+                          <p className="text-gray-400 text-xs mt-0.5 leading-relaxed">{tool.description}</p>
+                          {tool.install_hint && (
+                            <code className="text-xs text-amber-400/80 bg-gray-900 px-2 py-0.5 rounded mt-1 inline-block font-mono">{tool.install_hint}</code>
+                          )}
+                          {tool.integration_notes && (
+                            <p className="text-gray-600 text-xs mt-1 italic">{tool.integration_notes}</p>
+                          )}
+                        </div>
+                        <button
+                          onClick={() => setDrawer({ goal: result.goal, step_title: step.title, tool_name: tool.name, tool_description: tool.description })}
+                          className="flex-shrink-0 text-xs text-gray-600 hover:text-indigo-400 opacity-0 group-hover:opacity-100 transition-all px-2 py-0.5 rounded hover:bg-gray-700 ml-1 mt-0.5">
+                          Expliquer →
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                {si < (result.steps.length - 1) && (
+                  <div className="ml-9 mt-5 border-b border-gray-800" />
+                )}
               </div>
+            ))}
 
-              {/* Tools — one per line */}
-              <div className="ml-9 space-y-1">
-                {(step.tools || []).map((tool, ti) => (
-                  <div key={ti}
-                    className="flex items-baseline gap-2 group py-1.5 px-3 rounded-lg hover:bg-gray-800 transition-colors cursor-default">
-                    <span className="text-gray-600 text-xs flex-shrink-0">•</span>
-                    {tool.skill?.id
-                      ? <button onClick={() => navigate(`/skill/${tool.skill.id}`)} className="text-indigo-400 hover:text-indigo-300 hover:underline text-sm font-medium flex-shrink-0 text-left">{tool.name}</button>
-                      : <span className="text-gray-200 text-sm font-medium flex-shrink-0">{tool.name}</span>
-                    }
-                    <span className="text-gray-600 text-xs flex-shrink-0">—</span>
-                    <span className="text-gray-400 text-sm flex-1 min-w-0">{tool.description}</span>
-                    <button
-                      onClick={() => setDrawer({ goal: result.goal, step_title: step.title, tool_name: tool.name, tool_description: tool.description })}
-                      className="flex-shrink-0 text-xs text-gray-600 hover:text-indigo-400 opacity-0 group-hover:opacity-100 transition-all px-2 py-0.5 rounded hover:bg-gray-700 ml-2">
-                      Expliquer →
-                    </button>
+            {!result.steps?.length && (
+              <p className="text-gray-500 text-sm text-center py-8">Aucune étape générée. Essayez un objectif plus précis.</p>
+            )}
+          </div>
+
+          {/* Runtime tools */}
+          {result.runtime_tools?.length > 0 && (
+            <div className="bg-gray-800/40 border border-gray-700 rounded-xl p-4">
+              <p className="text-xs font-semibold text-emerald-500 uppercase tracking-wide mb-3">Outils runtime (production)</p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                {result.runtime_tools.map((rt, i) => (
+                  <div key={i} className="flex items-start gap-2 px-3 py-2 rounded-lg bg-gray-900/60 border border-gray-800">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 flex-shrink-0 mt-1.5" />
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        {rt.skill?.id
+                          ? <button onClick={() => navigate(`/skill/${rt.skill.id}`)} className="text-indigo-400 hover:text-indigo-300 hover:underline text-xs font-medium">{rt.name}</button>
+                          : <span className="text-gray-200 text-xs font-medium">{rt.name}</span>
+                        }
+                        {rt.category && rt.category !== 'other' && (
+                          <span className="text-xs text-gray-600 bg-gray-800 px-1.5 py-0.5 rounded border border-gray-700">{rt.category}</span>
+                        )}
+                      </div>
+                      {rt.purpose && <p className="text-gray-500 text-xs mt-0.5">{rt.purpose}</p>}
+                      {rt.install_hint && (
+                        <code className="text-xs text-amber-400/70 font-mono mt-0.5 block">{rt.install_hint}</code>
+                      )}
+                    </div>
                   </div>
                 ))}
               </div>
-
-              {/* Separator */}
-              {si < (result.steps.length - 1) && (
-                <div className="ml-9 mt-4 border-b border-gray-800" />
-              )}
             </div>
-          ))}
-
-          {!result.steps?.length && (
-            <p className="text-gray-500 text-sm text-center py-8">Aucune étape générée. Essayez un objectif plus précis.</p>
           )}
         </div>
       )}

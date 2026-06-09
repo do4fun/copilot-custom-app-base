@@ -80,14 +80,27 @@ router.post('/decompose', async (c) => {
 
   let allSkills
   if (source === 'sqlite-vector') {
-    const hits = semanticSearch(goal, 20)
+    const hits = semanticSearch(goal, 25)
     allSkills = hits
-      .map(h => db.prepare('SELECT id, name, category, description FROM skills WHERE id=? AND is_active=1').get(h.skill_id))
+      .map(h => db.prepare('SELECT id, name, category, description, features, install_instructions, pricing FROM skills WHERE id=? AND is_active=1').get(h.skill_id))
       .filter(Boolean)
   } else {
     allSkills = db.prepare(
-      'SELECT id, name, category, description FROM skills WHERE is_active=1 ORDER BY popularity_score DESC LIMIT 50'
+      'SELECT id, name, category, description, features, install_instructions, pricing FROM skills WHERE is_active=1 ORDER BY popularity_score DESC LIMIT 60'
     ).all()
+  }
+
+  // Attach tags to each skill for richer context
+  const tagsBySkill = {}
+  if (allSkills.length > 0) {
+    const ids = allSkills.map(s => s.id).join(',')
+    const tagRows = db.prepare(
+      `SELECT st.skill_id, t.name FROM skill_tags st JOIN tags t ON t.id = st.tag_id WHERE st.skill_id IN (${ids})`
+    ).all()
+    for (const row of tagRows) {
+      if (!tagsBySkill[row.skill_id]) tagsBySkill[row.skill_id] = []
+      tagsBySkill[row.skill_id].push(row.name)
+    }
   }
 
   const apiKey = process.env.ANTHROPIC_API_KEY
@@ -107,9 +120,17 @@ router.post('/decompose', async (c) => {
     try {
       const client = new Anthropic({ apiKey })
 
-      const skillList = allSkills
-        .map(s => `- ${s.name} (${s.category})${s.description ? ': ' + s.description.slice(0, 120) : ''}`)
-        .join('\n')
+      const skillList = allSkills.map(s => {
+        const tags = tagsBySkill[s.id] ? ` [${tagsBySkill[s.id].join(', ')}]` : ''
+        const pricing = s.pricing && s.pricing !== 'free' ? ` (${s.pricing})` : ''
+        let line = `- ${s.name} (${s.category}${pricing})${tags}`
+        if (s.description) line += `\n  Description: ${s.description.slice(0, 200)}`
+        let features = []
+        try { features = JSON.parse(s.features || '[]') } catch {}
+        if (features.length) line += `\n  Features: ${features.slice(0, 5).join(', ')}`
+        if (s.install_instructions) line += `\n  Install: ${s.install_instructions.slice(0, 100)}`
+        return line
+      }).join('\n')
 
       // System prompt: CLAUDE.md expert persona or minimal fallback
       const systemPrompt = EXPERT_SYSTEM || [
@@ -119,19 +140,24 @@ router.post('/decompose', async (c) => {
       ].join(' ')
 
       const userMessage = [
-        'Available skills in the database:',
+        `Available skills in the database (${allSkills.length} skills):`,
         skillList,
         '',
         `User goal: "${goal}"`,
         '',
         'Analyze this goal and respond with the JSON format defined in your instructions.',
-        'Use ONLY skill names that appear exactly in the list above for tool names.',
+        'Rules:',
+        '- For tool names that exist in the DB list above, use the exact name and set in_db: true.',
+        '- You MUST also include important tools NOT in the DB list (set in_db: false) — do not limit yourself to DB skills only.',
+        '- Provide at least 5 tools per step, combining DB skills and external tools.',
+        '- Include concrete commands and configurations in descriptions.',
+        '- Populate runtime_tools with ALL services the solution needs in production.',
         'Respond with valid JSON only (no markdown fences).',
       ].join('\n')
 
       const message = await client.messages.create({
         model: 'claude-opus-4-8',
-        max_tokens: 2000,
+        max_tokens: 4000,
         system: systemPrompt,
         messages: [{ role: 'user', content: userMessage }],
       })
@@ -149,11 +175,24 @@ router.post('/decompose', async (c) => {
         dev_tools:  step.dev_tools  || [],
         user_tools: step.user_tools || [],
         tools: (step.tools || []).map(tool => ({
-          name:        tool.name,
-          description: tool.description,
-          type:        tool.type || 'dev',
+          name:              tool.name,
+          description:       tool.description,
+          type:              tool.type || 'dev',
+          purpose:           tool.purpose           || '',
+          install_hint:      tool.install_hint      || '',
+          integration_notes: tool.integration_notes || '',
+          in_db:             tool.in_db !== false,
           skill: db.prepare('SELECT * FROM skills WHERE LOWER(name)=LOWER(?) AND is_active=1').get(tool.name) || null,
         })),
+      }))
+
+      const runtime_tools = (parsed.runtime_tools || []).map(rt => ({
+        name:         rt.name,
+        purpose:      rt.purpose      || '',
+        category:     rt.category     || 'other',
+        install_hint: rt.install_hint || '',
+        in_db:        rt.in_db !== false,
+        skill: db.prepare('SELECT * FROM skills WHERE LOWER(name)=LOWER(?) AND is_active=1').get(rt.name) || null,
       }))
 
       logEntry.method = 'claude'
@@ -163,6 +202,7 @@ router.post('/decompose', async (c) => {
         architecture:  parsed.architecture  || '',
         tech_stack:    parsed.tech_stack    || [],
         analyst_notes: parsed.analyst_notes || '',
+        runtime_tools,
         steps,
         source,
         method: 'claude',
