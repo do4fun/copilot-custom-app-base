@@ -23,7 +23,7 @@ function ruleBasedFallback(goal, source) {
     : g.includes('automat') ? 'automation' : 'default'
   const tpl = templates[key]
   const skillRows = tpl.skills
-    .map(name => db.prepare('SELECT * FROM skills WHERE LOWER(name)=LOWER(?)').get(name))
+    .map(name => db.prepare('SELECT * FROM skills WHERE LOWER(name)=LOWER(?) AND is_active=1').get(name))
     .filter(Boolean)
 
   return {
