@@ -298,7 +298,7 @@ export default function Scraper() {
       setSessions(se.data)
       setLastRefresh(new Date())
     } catch {
-      setError('Impossible de contacter l'API.')
+      setError("Impossible de contacter l'API.")
     } finally {
       setLoading(false)
     }

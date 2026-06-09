@@ -205,7 +205,7 @@ export default function Crud() {
         setDbInfo(r.data)
         if (r.data.tables.length > 0) setTable(r.data.tables[0].name)
       })
-      .catch(() => setError('Impossible de contacter l'API.'))
+      .catch(() => setError("Impossible de contacter l'API."))
   }, [])
 
   // Load table data when table/page/search changes
