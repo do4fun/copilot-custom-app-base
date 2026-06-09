@@ -6,7 +6,8 @@ const navLinks = [
   { to: '/goals', label: 'Goal Decomposition' },
   { to: '/collections', label: 'Collections' },
   { to: '/comparator', label: 'Comparator' },
-  { to: '/scraper', label: 'Scraper' },
+  { to: '/scraper',    label: 'Scraper' },
+  { to: '/goals/log', label: 'Goals Log' },
 ]
 
 export default function Navbar() {

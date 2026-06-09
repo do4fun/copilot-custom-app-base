@@ -22,6 +22,13 @@ try {
 
 const router = new Hono()
 
+// ─── In-memory session log ────────────────────────────────────────────────────
+
+const sessionLogs = []
+
+router.get('/logs', (c) => c.json(sessionLogs))
+router.delete('/logs', (c) => { sessionLogs.length = 0; return c.json({ cleared: true }) })
+
 // ─── Rule-based fallback ──────────────────────────────────────────────────────
 
 function ruleBasedFallback(goal, source) {
@@ -75,15 +82,27 @@ router.post('/decompose', async (c) => {
   if (source === 'sqlite-vector') {
     const hits = semanticSearch(goal, 20)
     allSkills = hits
-      .map(h => db.prepare('SELECT name, category, description FROM skills WHERE id=? AND is_active=1').get(h.skill_id))
+      .map(h => db.prepare('SELECT id, name, category, description FROM skills WHERE id=? AND is_active=1').get(h.skill_id))
       .filter(Boolean)
   } else {
     allSkills = db.prepare(
-      'SELECT name, category, description FROM skills WHERE is_active=1 ORDER BY popularity_score DESC LIMIT 50'
+      'SELECT id, name, category, description FROM skills WHERE is_active=1 ORDER BY popularity_score DESC LIMIT 50'
     ).all()
   }
 
   const apiKey = process.env.ANTHROPIC_API_KEY
+  console.log(`\n[goals/decompose] goal="${goal}" source=${source} skills=${allSkills.length} apiKey=${apiKey ? 'OK' : 'MANQUANTE → fallback rule-based'}`)
+
+  const logEntry = {
+    id:        Date.now(),
+    ts:        new Date().toISOString(),
+    goal,
+    source,
+    method:    null,
+    skills:    allSkills.map(s => ({ id: s.id, name: s.name, category: s.category })),
+  }
+  sessionLogs.unshift(logEntry)
+
   if (apiKey) {
     try {
       const client = new Anthropic({ apiKey })
@@ -91,13 +110,6 @@ router.post('/decompose', async (c) => {
       const skillList = allSkills
         .map(s => `- ${s.name} (${s.category})${s.description ? ': ' + s.description.slice(0, 120) : ''}`)
         .join('\n')
-
-      // Log skills being sent to the LLM
-      console.log(`\n[goals/decompose] goal="${goal}" source=${source}`)
-      console.log(`[goals/decompose] ${allSkills.length} skill(s) envoyé(s) au LLM :`)
-      allSkills.forEach((s, i) =>
-        console.log(`  ${String(i + 1).padStart(2)}. [${s.category}] ${s.name}`)
-      )
 
       // System prompt: CLAUDE.md expert persona or minimal fallback
       const systemPrompt = EXPERT_SYSTEM || [
@@ -144,6 +156,7 @@ router.post('/decompose', async (c) => {
         })),
       }))
 
+      logEntry.method = 'claude'
       return c.json({
         goal,
         summary:       parsed.summary       || '',
@@ -154,11 +167,12 @@ router.post('/decompose', async (c) => {
         source,
         method: 'claude',
       })
-    } catch {
-      // fall through to rule-based
+    } catch (err) {
+      console.error('[goals/decompose] Erreur Claude, fallback rule-based:', err.message)
     }
   }
 
+  logEntry.method = 'rule-based'
   return c.json(ruleBasedFallback(goal, source))
 })
 

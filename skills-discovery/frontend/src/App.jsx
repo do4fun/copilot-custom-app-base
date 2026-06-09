@@ -8,6 +8,7 @@ import Collections from './pages/Collections'
 import Comparator from './pages/Comparator'
 import Scraper from './pages/Scraper'
 import Crud from './pages/Crud'
+import GoalsLog from './pages/GoalsLog'
 
 function MainLayout() {
   return (
@@ -35,6 +36,7 @@ export default function App() {
           <Route path="/collections" element={<Collections />} />
           <Route path="/comparator"  element={<Comparator />} />
           <Route path="/scraper"     element={<Scraper />} />
+          <Route path="/goals/log"   element={<GoalsLog />} />
         </Route>
       </Routes>
     </Router>
