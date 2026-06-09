@@ -35,6 +35,10 @@ export const toggleFavorite = (id) => api.post(`/skills/${id}/favorite`)
 export const setSkillActive = (id, isActive) =>
   api.patch(`/skills/${id}/active`, { is_active: isActive ? 1 : 0 })
 
+// Service control
+export const getAdminStatus  = ()       => api.get('/admin/status')
+export const restartService  = (target) => api.post('/admin/restart', { target })
+
 export const addNote = (id, content) =>
   api.post(`/skills/${id}/notes`, { content })
 

@@ -84,4 +84,46 @@ router.post('/purge-sessions', (c) => {
   return c.json({ skills_deleted, sessions_deleted })
 })
 
+// ─── Process status ───────────────────────────────────────────────────────────
+
+router.get('/status', (c) => {
+  return c.json({
+    api:        'running',
+    pid:        process.pid,
+    uptime_s:   Math.floor(process.uptime()),
+    memory_mb:  Math.round(process.memoryUsage().rss / 1024 / 1024),
+    managed:    !!process.send,   // true only when launched by manager.js
+  })
+})
+
+// ─── Restart ──────────────────────────────────────────────────────────────────
+// target: 'api' | 'frontend' | 'all'
+// When running under manager.js, sends an IPC message.
+// When running standalone, only 'api' works (exits with restart code 75).
+
+const RESTART_CODE = 75
+
+router.post('/restart', async (c) => {
+  const body   = await c.req.json().catch(() => ({}))
+  const target = (body.target || 'api').toLowerCase()
+
+  if (!['api', 'frontend', 'all'].includes(target))
+    return c.json({ error: 'target invalide (api | frontend | all)' }, 422)
+
+  if (process.send) {
+    // Running under manager.js — delegate restart to parent
+    process.send({ action: 'restart', target })
+    return c.json({ ok: true, target, managed: true })
+  }
+
+  // Standalone mode: can only restart the API itself
+  if (target === 'frontend')
+    return c.json({ ok: false, error: 'Redémarrage du frontend impossible sans le manager', managed: false }, 503)
+
+  // Schedule exit after response is sent (code 75 = restart signal for manager / shell wrappers)
+  c.executionCtx?.waitUntil?.(new Promise(resolve => setTimeout(resolve, 200)))
+  setTimeout(() => process.exit(RESTART_CODE), 200)
+  return c.json({ ok: true, target, managed: false, warning: 'standalone — redémarre manuellement si nécessaire' })
+})
+
 export default router

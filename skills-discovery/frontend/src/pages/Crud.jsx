@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react'
-import { getAdminDbInfo, getAdminTable, purgeSessionData, setSkillActive } from '../api'
+import { getAdminDbInfo, getAdminTable, purgeSessionData, setSkillActive, getAdminStatus, restartService } from '../api'
+import api from '../api'
 
 const TRUNCATE = 100
 
@@ -44,6 +45,145 @@ function ActiveToggle({ skillId, isActive, onToggle }) {
         }`}
       />
     </button>
+  )
+}
+
+// ─── Service control ──────────────────────────────────────────────────────────
+
+function formatUptime(s) {
+  if (s < 60)   return `${s}s`
+  if (s < 3600) return `${Math.floor(s / 60)}m`
+  return `${Math.floor(s / 3600)}h${String(Math.floor((s % 3600) / 60)).padStart(2, '0')}m`
+}
+
+function StatusDot({ status }) {
+  const cls = {
+    running:    'bg-emerald-400',
+    restarting: 'bg-amber-400 animate-pulse',
+    down:       'bg-red-500 animate-pulse',
+    unknown:    'bg-gray-600',
+  }[status] || 'bg-gray-600'
+  return <span className={`inline-block w-2 h-2 rounded-full flex-shrink-0 ${cls}`} />
+}
+
+function ServiceControl() {
+  const [apiStatus,  setApiStatus]  = useState('unknown')   // unknown|running|restarting|down
+  const [frontStatus, setFrontStatus] = useState('running') // running|restarting
+  const [uptime,    setUptime]      = useState(null)
+  const [managed,   setManaged]     = useState(false)
+  const [busy,      setBusy]        = useState({ api: false, frontend: false })
+  // Poll /admin/status every 5 s to keep uptime fresh
+  useEffect(() => {
+    const poll = async () => {
+      try {
+        const r = await getAdminStatus()
+        setApiStatus('running')
+        setUptime(r.data.uptime_s)
+        setManaged(!!r.data.managed)
+      } catch {
+        setApiStatus(prev => prev === 'restarting' ? prev : 'down')
+      }
+    }
+    poll()
+    const id = setInterval(poll, 5000)
+    return () => clearInterval(id)
+  }, [])
+
+  const waitForApi = async () => {
+    for (let i = 0; i < 30; i++) {
+      await new Promise(r => setTimeout(r, 1000))
+      try {
+        await api.get('/health')
+        return true
+      } catch {}
+    }
+    return false
+  }
+
+  const handleRestart = async (target) => {
+    const touchesApi   = target !== 'frontend'
+    const touchesFront = target !== 'api'
+
+    setBusy(p => ({ api: p.api || touchesApi, frontend: p.frontend || touchesFront }))
+    if (touchesApi)   setApiStatus('restarting')
+    if (touchesFront) setFrontStatus('restarting')
+
+    try {
+      await restartService(target)
+    } catch {
+      // API may die before sending a response — that's expected
+    }
+
+    if (touchesApi) {
+      const back = await waitForApi()
+      setApiStatus(back ? 'running' : 'down')
+      setBusy(p => ({ ...p, api: false }))
+      if (touchesFront) setBusy(p => ({ ...p, frontend: false }))
+    }
+    if (touchesFront && !touchesApi) {
+      await new Promise(r => setTimeout(r, 3000))
+      setFrontStatus('running')
+      setBusy(p => ({ ...p, frontend: false }))
+    }
+  }
+
+  const btnClass = (disabled) =>
+    `px-2.5 py-1 text-xs rounded transition-colors flex-shrink-0 font-medium
+     ${disabled
+       ? 'bg-gray-800 text-gray-600 cursor-not-allowed'
+       : 'bg-gray-800 hover:bg-gray-700 text-gray-300 hover:text-white cursor-pointer'}`
+
+  return (
+    <div className="flex items-center gap-3 border-l border-gray-700 pl-4">
+      {/* Status indicators */}
+      <div className="flex items-center gap-2 text-xs text-gray-500">
+        <span className="flex items-center gap-1.5">
+          <StatusDot status={apiStatus} />
+          <span className="hidden sm:inline">API</span>
+          {uptime !== null && apiStatus === 'running' &&
+            <span className="text-gray-600 font-mono">{formatUptime(uptime)}</span>
+          }
+          {apiStatus === 'restarting' && <span className="text-amber-400 animate-pulse">…</span>}
+        </span>
+        <span className="flex items-center gap-1.5">
+          <StatusDot status={frontStatus} />
+          <span className="hidden sm:inline">Front</span>
+          {frontStatus === 'restarting' && <span className="text-amber-400 animate-pulse">…</span>}
+        </span>
+      </div>
+
+      {/* Restart buttons */}
+      <button
+        onClick={() => handleRestart('api')}
+        disabled={busy.api}
+        title={busy.api ? 'Redémarrage en cours…' : 'Redémarrer l\'API'}
+        className={btnClass(busy.api)}
+      >
+        {busy.api ? '⟳ API…' : '↺ API'}
+      </button>
+
+      {managed && (
+        <button
+          onClick={() => handleRestart('frontend')}
+          disabled={busy.frontend}
+          title={busy.frontend ? 'Redémarrage en cours…' : 'Redémarrer le Frontend'}
+          className={btnClass(busy.frontend)}
+        >
+          {busy.frontend ? '⟳ Front…' : '↺ Front'}
+        </button>
+      )}
+
+      {managed && (
+        <button
+          onClick={() => handleRestart('all')}
+          disabled={busy.api || busy.frontend}
+          title="Redémarrer API + Frontend"
+          className={`${btnClass(busy.api || busy.frontend)} ${!(busy.api || busy.frontend) ? 'hover:bg-red-950 hover:text-red-300' : ''}`}
+        >
+          ↺ Tout
+        </button>
+      )}
+    </div>
   )
 }
 
@@ -158,6 +298,8 @@ export default function Crud() {
               Supprimer toutes les sessions + skills scrapés ?
             </span>
           )}
+
+          <ServiceControl />
 
           <button
             onClick={handlePurge}
