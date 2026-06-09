@@ -1,8 +1,24 @@
 import { Hono } from 'hono'
 import { streamText } from 'hono/streaming'
+import { readFileSync } from 'fs'
+import { join, dirname } from 'path'
+import { fileURLToPath } from 'url'
 import Anthropic from '@anthropic-ai/sdk'
 import { db } from '../db.js'
 import { semanticSearch } from '../vector-db.js'
+
+const __dirname = dirname(fileURLToPath(import.meta.url))
+
+// Load expert persona from CLAUDE.md — used as system prompt for decompose
+let EXPERT_SYSTEM = null
+try {
+  EXPERT_SYSTEM = readFileSync(
+    join(__dirname, '..', '..', '..', 'CLAUDE.md'),
+    'utf8'
+  )
+} catch {
+  // File absent: fallback to inline prompt
+}
 
 const router = new Hono()
 
@@ -19,7 +35,7 @@ function ruleBasedFallback(goal, source) {
   }
   const key = g.includes('api') || g.includes('backend') ? 'api'
     : g.includes('frontend') || g.includes('ui') ? 'frontend'
-    : g.includes('research') || g.includes('analyse') ? 'research'
+    : g.includes('research') || g.includes('analys') ? 'research'
     : g.includes('automat') ? 'automation' : 'default'
   const tpl = templates[key]
   const skillRows = tpl.skills
@@ -29,12 +45,19 @@ function ruleBasedFallback(goal, source) {
   return {
     goal,
     summary: `Approche basique pour: ${key}`,
+    architecture: '',
+    tech_stack: [],
+    analyst_notes: '',
     steps: tpl.steps.map((title, i) => ({
       step: i + 1,
       title,
+      role: 'dev',
+      dev_tools: skillRows.map(s => s.name),
+      user_tools: [],
       tools: skillRows.map(s => ({
         name: s.name,
         description: `Utiliser ${s.name} pour accomplir cette étape`,
+        type: 'dev',
       })),
     })),
     source: source || 'sqlite',
@@ -64,59 +87,66 @@ router.post('/decompose', async (c) => {
   if (apiKey) {
     try {
       const client = new Anthropic({ apiKey })
-      const skillList = allSkills.map(s => `- ${s.name} (${s.category})`).join('\n')
+
+      const skillList = allSkills
+        .map(s => `- ${s.name} (${s.category})${s.description ? ': ' + s.description.slice(0, 120) : ''}`)
+        .join('\n')
+
+      // System prompt: CLAUDE.md expert persona or minimal fallback
+      const systemPrompt = EXPERT_SYSTEM || [
+        'You are a senior IT analyst specialized in web solution integration.',
+        'You combine the roles of software developer, functional analyst, and IT architect.',
+        'Always distinguish dev_tools (used to build the solution) from user_tools (part of the delivered solution).',
+      ].join(' ')
+
+      const userMessage = [
+        'Available skills in the database:',
+        skillList,
+        '',
+        `User goal: "${goal}"`,
+        '',
+        'Analyze this goal and respond with the JSON format defined in your instructions.',
+        'Use ONLY skill names that appear exactly in the list above for tool names.',
+        'Respond with valid JSON only (no markdown fences).',
+      ].join('\n')
 
       const message = await client.messages.create({
         model: 'claude-opus-4-8',
         max_tokens: 2000,
-        messages: [{
-          role: 'user',
-          content: `You decompose goals into clear, ordered steps with the right tools for each step.
-
-Available tools:
-${skillList}
-
-Rules:
-- Choose the number of steps based on goal complexity (2–8 steps)
-- For each step, list only the tools that are genuinely useful (1–4 tools per step)
-- "description" must be a single short sentence: what the tool does IN THIS STEP specifically
-- Prefer tools from the available list; you may add generic ones (e.g. "Terminal", "Browser") if truly necessary
-- No redundancy: don't repeat the same tool across steps unless the usage is clearly different
-
-Goal: "${goal}"
-
-Respond with valid JSON only (no markdown):
-{
-  "summary": "One sentence describing the overall approach",
-  "steps": [
-    {
-      "step": 1,
-      "title": "Step title (short, action verb)",
-      "tools": [
-        {
-          "name": "Tool name (exact name from list when possible)",
-          "description": "What it does in this specific step"
-        }
-      ]
-    }
-  ]
-}`,
-        }],
+        system: systemPrompt,
+        messages: [{ role: 'user', content: userMessage }],
       })
 
       const text = message.content[0].text.trim()
-      const parsed = JSON.parse(text.replace(/^```json\s*/, '').replace(/\s*```$/, ''))
+        .replace(/^```json\s*/i, '')
+        .replace(/^```\s*/i, '')
+        .replace(/\s*```$/, '')
+
+      const parsed = JSON.parse(text)
 
       const steps = (parsed.steps || []).map(step => ({
         ...step,
+        role:       step.role       || 'dev',
+        dev_tools:  step.dev_tools  || [],
+        user_tools: step.user_tools || [],
         tools: (step.tools || []).map(tool => ({
-          name: tool.name,
+          name:        tool.name,
           description: tool.description,
+          type:        tool.type || 'dev',
           skill: db.prepare('SELECT * FROM skills WHERE LOWER(name)=LOWER(?) AND is_active=1').get(tool.name) || null,
         })),
       }))
 
-      return c.json({ goal, summary: parsed.summary, steps, source, method: 'claude' })
+      return c.json({
+        goal,
+        summary:       parsed.summary       || '',
+        architecture:  parsed.architecture  || '',
+        tech_stack:    parsed.tech_stack    || [],
+        analyst_notes: parsed.analyst_notes || '',
+        steps,
+        source,
+        method: 'claude',
+      })
     } catch {
       // fall through to rule-based
     }
