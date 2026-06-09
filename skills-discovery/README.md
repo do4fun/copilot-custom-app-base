@@ -6,82 +6,98 @@ Web app pour **découvrir, rechercher et gérer** les skills IA, serveurs MCP, e
 
 - **Recherche full-text** (SQLite FTS5) par nom, description, features, tags
 - **Filtres** par catégorie, prix (free / freemium / paid) et tags
-- **Décomposition de but** — décris ton objectif, Claude le découpe en tâches et suggère les meilleurs outils pour chacune
+- **Décomposition de but** — décris ton objectif, Claude le découpe en étapes et suggère les meilleurs outils pour chacune
 - **Comparateur** — compare 2–3 skills côte à côte (features, prix, tags, popularité)
 - **Favoris & Collections** — organise tes skills par projet ou cas d'usage
 - **Notes personnelles** — annote chaque skill avec tes propres observations
-- **Combinaisons de skills** — découvre quels outils fonctionnent bien ensemble
+- **Scraper intégré** — crawle GitHub et d'autres sources pour découvrir de nouveaux skills
+- **Recherche vectorielle** — similarité sémantique TF-IDF + espace de capacités
 
 ## Stack technique
 
 | Couche | Technologie |
 |---|---|
-| Backend | FastAPI + Python 3.11+ |
-| Base de données | SQLite + FTS5 (full-text search) |
-| Frontend | React 18 + Vite + TailwindCSS |
+| Backend | Node.js + Hono (port 8000) |
+| Base de données | SQLite + FTS5 (full-text) + SQLite vectorielle |
+| Scraping | Crawlee (Cheerio crawler) |
+| Frontend | React 18 + Vite + TailwindCSS (port 5173) |
 | IA (décomposition) | Claude API (`claude-opus-4-8`) |
-| ORM async | aiosqlite |
 
 ## Structure du projet
 
 ```
 skills-discovery/
-├── backend/
-│   ├── app/
-│   │   ├── main.py              # FastAPI app, démarrage, CORS
-│   │   ├── database.py          # SQLite init, FTS5, triggers
-│   │   ├── models.py            # Schémas Pydantic
-│   │   ├── routers/
-│   │   │   ├── skills.py        # CRUD skills, favoris, notes
-│   │   │   ├── search.py        # Recherche FTS5 + filtres
-│   │   │   ├── collections.py   # Collections + favoris
-│   │   │   ├── goals.py         # Décomposition de but (Claude API)
-│   │   │   └── comparator.py    # Comparaison de skills
-│   │   └── scraper/
-│   │       ├── seed_data.py     # 50+ skills pré-chargés
-│   │       ├── claude_skills.py # Scraper Claude Code skills
-│   │       └── mcp_servers.py   # Scraper MCP servers
-│   ├── requirements.txt
-│   └── run.py
+├── api/
+│   ├── src/
+│   │   ├── app.js               # Hono app, CORS, montage des routes
+│   │   ├── server.js            # Entrée, init DB, serve static
+│   │   ├── db.js                # SQLite init, seed data, upsertSkill
+│   │   ├── vector-db.js         # Embeddings TF-IDF + recherche vectorielle
+│   │   ├── routes/
+│   │   │   ├── skills.js        # CRUD skills, favoris, notes, is_active
+│   │   │   ├── search.js        # Recherche FTS5 + filtres + tags
+│   │   │   ├── collections.js   # Collections + favoris
+│   │   │   ├── goals.js         # Décomposition de but (Claude API)
+│   │   │   ├── comparator.js    # Comparaison de skills
+│   │   │   ├── scraper.js       # Sessions de scraping
+│   │   │   ├── semantic-search.js # Recherche vectorielle + sync
+│   │   │   └── admin.js         # DB info, purge, restart services
+│   │   └── crawlers/
+│   │       ├── generic.js       # Crawler générique (GitHub tree/blob)
+│   │       ├── github-skills.js # Scraper Claude Code skills GitHub
+│   │       ├── github.js        # Client GitHub API
+│   │       └── npm.js           # Scraper NPM packages
+│   ├── .env                     # ANTHROPIC_API_KEY, GITHUB_TOKEN, BRAVE_API_KEY
+│   └── package.json
 ├── frontend/
 │   ├── src/
 │   │   ├── pages/
 │   │   │   ├── Home.jsx         # Recherche principale
 │   │   │   ├── SkillDetail.jsx  # Détail + notes + collections
 │   │   │   ├── Goals.jsx        # Décomposition de but
+│   │   │   ├── GoalsLog.jsx     # Log de session (skills envoyés au LLM)
 │   │   │   ├── Collections.jsx  # Favoris + collections
-│   │   │   └── Comparator.jsx   # Tableau de comparaison
+│   │   │   ├── Comparator.jsx   # Tableau de comparaison
+│   │   │   ├── Scraper.jsx      # Config + sessions de scraping
+│   │   │   └── Crud.jsx         # Admin — vue directe sur la DB
 │   │   ├── components/
 │   │   │   ├── Navbar.jsx
 │   │   │   ├── SearchBar.jsx
 │   │   │   ├── SkillCard.jsx
+│   │   │   ├── MarkdownContent.jsx
 │   │   │   └── TagBadge.jsx
-│   │   └── api.js               # Client Axios
-│   ├── package.json
-│   └── vite.config.js
-└── README.md
+│   │   └── api.js               # Client Axios → /api/*
+│   └── vite.config.js           # Proxy /api → localhost:8000
+├── scripts/
+│   └── manager.js               # Process manager (API + Frontend)
+├── skills.db                    # Base SQLite principale (FTS5)
+├── skills_vectors.db            # Base vectorielle (embeddings)
+├── CLAUDE.md                    # Persona expert pour la décomposition IA
+├── start.bat                    # Lance API + Frontend
+└── start-frontend.bat           # Lance Frontend uniquement
 ```
 
 ## Installation et lancement
 
 ### Prérequis
 
-- Python 3.11+
 - Node.js 18+
 - (Optionnel) Clé API Anthropic pour la décomposition IA
 
-### Backend
+### API (backend)
 
 ```bash
-cd backend
-pip install -r requirements.txt
+cd api
+npm install
 
-# Optionnel — activer la décomposition IA avec Claude
-export ANTHROPIC_API_KEY=sk-ant-...
+# Créer api/.env avec les clés nécessaires :
+# ANTHROPIC_API_KEY=sk-ant-...   (décomposition IA)
+# GITHUB_TOKEN=ghp_...           (scraping GitHub)
+# BRAVE_API_KEY=...              (optionnel)
 
-python run.py
+npm run dev
 # → http://localhost:8000
-# → Swagger UI : http://localhost:8000/docs
+# → Health check : http://localhost:8000/api/health
 ```
 
 La base de données `skills.db` est créée automatiquement au premier démarrage avec **50+ skills** pré-chargés.
@@ -92,30 +108,26 @@ La base de données `skills.db` est créée automatiquement au premier démarrag
 cd frontend
 npm install
 npm run dev
-# → http://localhost:5173
+# → http://localhost:5173 (proxy /api → :8000)
 ```
 
-### Frontend (production — servi par FastAPI)
+### Frontend (production — servi par l'API)
 
 ```bash
 cd frontend
 npm run build
-# Les fichiers sont dans frontend/dist/
-# FastAPI les sert automatiquement sur http://localhost:8000
+# Les fichiers dist/ sont servis automatiquement par Hono sur http://localhost:8000
 ```
 
-## Skills pré-chargés (seed data)
+### Lancement rapide (Windows)
 
-| Catégorie | Nombre | Exemples |
-|---|---|---|
-| Claude Code Skill | 14 | `/deep-research`, `/code-review`, `/security-review` |
-| MCP Server | 12 | `filesystem`, `github`, `brave-search`, `memory` |
-| AI Coding Tool | 16 | Claude Code CLI, Cursor, Aider, Windsurf, v0 |
-| AI Productivity Tool | 8 | Claude.ai, Perplexity, NotebookLM, Phind |
+```bat
+start.bat
+```
 
 ## API — Endpoints principaux
 
-```
+```http
 GET  /api/search/search?q=...&category=...&pricing=...&tags=...
 GET  /api/search/categories
 GET  /api/search/tags
@@ -124,46 +136,30 @@ GET  /api/skills              # liste paginée
 GET  /api/skills/{id}         # détail + notes + combinaisons
 POST /api/skills/{id}/favorite
 POST /api/skills/{id}/notes
+PATCH /api/skills/{id}/active  # activer/désactiver
 
-POST /api/goals/decompose     # {"goal": "..."} → tâches + skills
+POST /api/goals/decompose     # {"goal": "...", "source": "sqlite|sqlite-vector"}
+GET  /api/goals/logs          # log de session (skills envoyés au LLM)
 POST /api/comparator          # {"skill_ids": [1, 2, 3]}
 
 GET  /api/collections
 POST /api/collections
 POST /api/collections/{id}/skills/{skill_id}
-GET  /api/collections/favorites/list
+
+POST /api/semantic-search/sync  # synchronise la DB vectorielle
+POST /api/semantic-search       # {"query": "...", "top_k": 10}
+
+GET  /api/scraper/configs
+POST /api/scraper/sessions
+GET  /api/admin/db-info
 
 GET  /api/health
 ```
 
-## Décomposition de but
-
-Avec une clé API Anthropic, la décomposition utilise **Claude** (`claude-opus-4-8`) pour :
-1. Analyser le but et identifier 3–5 sous-tâches
-2. Suggérer les skills les plus pertinents de la base locale pour chaque tâche
-
-Sans clé API, un fallback rule-based prend le relais (détection par mots-clés).
-
-**Exemple :**
-> "Construire une API REST avec authentification et base de données PostgreSQL"
-
-→ Tâches générées :
-1. Design API structure → **Claude Code CLI**, Claude.ai, claude-api
-2. Implement backend logic → **Claude Code CLI**, Cursor, Continue.dev
-3. Set up database → **postgres MCP**, Claude Code CLI
-4. Write tests → **Claude Code CLI**, code-review
-5. Document and deploy → **Claude Code CLI**, fetch MCP
-
 ## Variables d'environnement
 
 | Variable | Requis | Description |
-|---|---|---|
+| --- | --- | --- |
 | `ANTHROPIC_API_KEY` | Non | Active la décomposition de but par Claude |
-
-## Développement futur
-
-- [ ] Entité **Workflow** — séquences ordonnées de skills sauvegardables
-- [ ] **Software** comme catégorie (VS Code, Docker, Postman…)
-- [ ] Mise à jour automatique via re-crawl périodique
-- [ ] Export JSON/CSV d'une sélection de skills
-- [ ] Score de popularité enrichi (GitHub stars, Reddit mentions)
+| `GITHUB_TOKEN` | Non | Augmente la limite de taux GitHub (scraping) |
+| `BRAVE_API_KEY` | Non | Active la recherche Brave dans les goals |
