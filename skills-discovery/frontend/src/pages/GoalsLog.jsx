@@ -34,7 +34,7 @@ export default function GoalsLog() {
       const res = await api.get('/goals/logs')
       setLogs(res.data)
     } catch {
-      // backend not ready yet
+      // API not ready yet
     } finally {
       setLoading(false)
     }

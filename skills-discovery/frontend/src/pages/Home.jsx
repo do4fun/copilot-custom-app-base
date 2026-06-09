@@ -51,7 +51,7 @@ export default function Home() {
       setSkills(res.data.skills)
       setTotal(res.data.total)
     } catch (err) {
-      setError('Failed to load skills. Make sure the backend is running.')
+      setError('Failed to load skills. Make sure the API is running.')
       setSkills([])
       setTotal(0)
     } finally {

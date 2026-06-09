@@ -28,5 +28,5 @@ if (existsSync(frontendDist)) {
 const PORT = Number(process.env.PORT || 8000)
 serve({ fetch: app.fetch, port: PORT }, () => {
   console.log(`SkillsHub API (Node.js/Hono) → http://localhost:${PORT}`)
-  console.log(`Swagger not available in Hono mode — use http://localhost:${PORT}/api/health`)
+  console.log(`Health check : http://localhost:${PORT}/api/health`)
 })

@@ -84,7 +84,7 @@ skills-discovery/
 - Node.js 18+
 - (Optionnel) Clé API Anthropic pour la décomposition IA
 
-### API (backend)
+### API
 
 ```bash
 cd api

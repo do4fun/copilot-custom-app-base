@@ -55,7 +55,7 @@ export default function Comparator() {
     setError(null)
     compareSkills(ids)
       .then((res) => setComparison(res.data))
-      .catch(() => setError('Failed to load comparison data. Make sure the backend is running.'))
+      .catch(() => setError('Failed to load comparison data. Make sure the API is running.'))
       .finally(() => setLoading(false))
   }, [ids.join(',')])
 

@@ -94,7 +94,7 @@ export default function Goals() {
       const res = await decomposeGoal(goal.trim(), source)
       setResult(res.data)
     } catch (err) {
-      setError(err.response?.data?.detail || 'Échec. Vérifiez que le backend est démarré.')
+      setError(err.response?.data?.detail || 'Échec. Vérifiez que l\'API est démarrée.')
     } finally {
       setLoading(false)
     }
