@@ -4,13 +4,13 @@
   "buildCommand": "npm run build --prefix frontend",
   "outputDirectory": "frontend/dist",
   "functions": {
-    "api/vercel/index.js": {
+    "hono-handler.js": {
       "maxDuration": 30,
       "memory": 1024
     }
   },
   "rewrites": [
-    { "source": "/api/:path*", "destination": "/api/vercel/index.js" },
+    { "source": "/api/:path*", "destination": "/hono-handler.js" },
     { "source": "/(.*)",       "destination": "/index.html" }
   ]
 }
