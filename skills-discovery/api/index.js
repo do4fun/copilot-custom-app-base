@@ -1,7 +1,7 @@
 import { handle } from 'hono/vercel'
-import app from './api/src/app.js'
-import { initDb, seedData } from './api/src/db.js'
-import { initVectorDb } from './api/src/vector-db.js'
+import app from './src/app.js'
+import { initDb, seedData } from './src/db.js'
+import { initVectorDb } from './src/vector-db.js'
 
 initDb()
 seedData()

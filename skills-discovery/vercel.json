@@ -4,13 +4,13 @@
   "buildCommand": "npm run build --prefix frontend",
   "outputDirectory": "frontend/dist",
   "functions": {
-    "hono-handler.js": {
+    "api/index.js": {
       "maxDuration": 30,
       "memory": 1024
     }
   },
   "rewrites": [
-    { "source": "/api/:path*", "destination": "/hono-handler.js" },
+    { "source": "/api/:path*", "destination": "/api/index" },
     { "source": "/(.*)",       "destination": "/index.html" }
   ]
 }

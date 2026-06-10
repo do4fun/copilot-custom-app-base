@@ -1,6 +1,5 @@
-# Prevent Vercel from auto-detecting api/src and api/vercel files as
-# separate serverless functions (would exceed 12-function Hobby plan limit).
-# nft bundles these into hono-handler.js during build before this filter runs.
+# Prevent auto-detection of api/src files as separate serverless functions.
+# nft bundles these into api/index.js during build before this filter runs.
 api/src
 api/vercel
 api/node_modules
