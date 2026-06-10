@@ -4,7 +4,6 @@
   "outputDirectory": "frontend/dist",
   "functions": {
     "api/vercel/index.js": {
-      "runtime": "nodejs22.x",
       "maxDuration": 30,
       "memory": 1024
     }
