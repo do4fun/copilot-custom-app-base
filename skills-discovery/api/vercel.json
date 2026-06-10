@@ -1,13 +1,12 @@
 {
   "functions": {
     "vercel/index.js": {
-      "runtime": "nodejs22.x"
+      "runtime": "nodejs22.x",
+      "maxDuration": 30,
+      "memory": 1024
     }
   },
-  "routes": [
-    {
-      "src": "/api/(.*)",
-      "dest": "/vercel/index.js"
-    }
+  "rewrites": [
+    { "source": "/(.*)", "destination": "/vercel/index.js" }
   ]
 }

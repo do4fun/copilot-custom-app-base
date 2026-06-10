@@ -1,0 +1,16 @@
+{
+  "installCommand": "cd api && npm install && cd ../frontend && npm install",
+  "buildCommand": "cd frontend && npm run build",
+  "outputDirectory": "frontend/dist",
+  "functions": {
+    "api/vercel/index.js": {
+      "runtime": "nodejs22.x",
+      "maxDuration": 30,
+      "memory": 1024
+    }
+  },
+  "rewrites": [
+    { "source": "/api/:path*", "destination": "/api/vercel/index.js" },
+    { "source": "/(.*)",       "destination": "/index.html" }
+  ]
+}

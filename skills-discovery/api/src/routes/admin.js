@@ -104,6 +104,9 @@ router.get('/status', (c) => {
 const RESTART_CODE = 75
 
 router.post('/restart', async (c) => {
+  if (process.env.VERCEL)
+    return c.json({ ok: false, error: 'Restart not available in serverless (Vercel)' }, 501)
+
   const body   = await c.req.json().catch(() => ({}))
   const target = (body.target || 'api').toLowerCase()
 
