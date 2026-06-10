@@ -1,6 +1,7 @@
 {
-  "installCommand": "cd api && npm install && cd ../frontend && npm install",
-  "buildCommand": "cd frontend && npm run build",
+  "framework": null,
+  "installCommand": "npm install --prefix api && npm install --prefix frontend",
+  "buildCommand": "npm run build --prefix frontend",
   "outputDirectory": "frontend/dist",
   "functions": {
     "api/vercel/index.js": {
