@@ -238,6 +238,257 @@ export async function crawlGithubSkillRepo(config, {
   }
 }
 
+// ─── Agent markdown parser ────────────────────────────────────────────────────
+//
+// Reference: Claude Code AGENTS.md / agent.md format
+// Frontmatter: name, description (required) + model, tools, allowed-tools (optional)
+// Body: agent instructions / system prompt
+
+export function parseAgentMarkdown(content) {
+  const fmMatch = content.match(/^---[\r\n]([\s\S]*?)[\r\n]---[\r\n]?/)
+  if (!fmMatch)
+    return { agent: null, reason: 'Pas de frontmatter YAML (--- manquant)' }
+
+  const body = content.slice(fmMatch[0].length).trimStart()
+
+  let fm = {}
+  try { fm = parseYaml(fmMatch[1]) }
+  catch (e) { return { agent: null, reason: `Frontmatter invalide: ${e.message}` } }
+
+  const name = fm.name ? String(fm.name).trim() : ''
+  if (name.length < 2)
+    return { agent: null, reason: 'name absent ou trop court dans le frontmatter' }
+
+  const description = fm.description ? String(fm.description).trim() : ''
+  if (!description)
+    return { agent: null, reason: 'description absente du frontmatter' }
+  if (description.length < MIN_DESC_LEN)
+    return { agent: null, reason: `description trop courte: ${description.length} chars (minimum ${MIN_DESC_LEN})` }
+
+  const bodyLen = body.trim().length
+  if (bodyLen < MIN_BODY_LEN)
+    return { agent: null, reason: `body trop court: ${bodyLen} chars (minimum ${MIN_BODY_LEN})` }
+
+  // Tags
+  let tags = []
+  if (Array.isArray(fm.tags))          tags = fm.tags.map(String).filter(Boolean)
+  else if (typeof fm.tags === 'string' && fm.tags.trim())
+    tags = fm.tags.split(',').map(s => s.trim()).filter(Boolean)
+  if (!tags.length) tags = name.split(/[-_\s]+/).filter(t => t.length > 2)
+  if (!tags.includes('claude-code')) tags.unshift('claude-code')
+  if (!tags.includes('agent'))       tags.push('agent')
+
+  // Features: model, tools, allowed-tools, sub-agents
+  const features = []
+  const model = fm.model ? String(fm.model).trim() : ''
+  if (model)                                   features.push(`Model: ${model}`)
+  if (Array.isArray(fm['allowed-tools']))      features.push(...fm['allowed-tools'].map(t => `Tool: ${t}`))
+  if (Array.isArray(fm.tools))                 features.push(...fm.tools.map(t => `Tool: ${t}`))
+  if (Array.isArray(fm.agents))                features.push(...fm.agents.map(a => `Agent: ${a}`))
+
+  const agent = {
+    name:        name.slice(0, 100),
+    description: description.slice(0, 800),
+    tags,
+    version:     fm.version ? String(fm.version).trim() : '',
+    features,
+  }
+
+  const summary = [
+    `name: "${agent.name}"`,
+    `description: ${description.length} chars`,
+    `body: ${bodyLen} chars`,
+    tags.length  ? `tags: [${tags.slice(0, 4).join(', ')}]` : null,
+    model        ? `model: ${model}` : null,
+    features.length ? `features: ${features.length}` : null,
+  ].filter(Boolean).join(' | ')
+
+  return { agent, reason: `✓ ${summary}` }
+}
+
+// ─── GitHub agent repo crawler (Trees API) ───────────────────────────────────
+// Looks for agents.md / AGENTS.md / agent.md / AGENT.md anywhere in the repo tree.
+
+export async function crawlGithubAgentRepo(config, {
+  onSkill, onLog, onTotal, onFail = () => {}, onSkip = () => {}, checkStop,
+}) {
+  const m = config.url.match(/github\.com\/([^/]+\/[^/?#]+)/)
+  if (!m) {
+    onLog(`URL invalide — format attendu: https://github.com/{owner}/{repo}`, 'ERROR')
+    return
+  }
+  const repo = m[1].replace(/\.git$/, '')
+  const headers = githubHeaders()
+
+  onLog(`Analyse du repo (agents): ${repo}`, 'INFO')
+
+  const treeUrl = `https://api.github.com/repos/${repo}/git/trees/HEAD?recursive=1`
+  onLog(`> ${treeUrl}`, 'DEBUG')
+
+  let tree = []
+  try {
+    const res = await fetch(treeUrl, { headers, signal: AbortSignal.timeout(20000) })
+    if (!res.ok) {
+      const hint = res.status === 401 ? ' — ajoutez GITHUB_TOKEN dans .env'
+                 : res.status === 403 ? ' — rate-limit GitHub'
+                 : ''
+      onLog(`GitHub API ${res.status}${hint}`, 'ERROR')
+      return
+    }
+    const data = await res.json()
+    tree = data.tree || []
+    if (data.truncated) onLog(`Arbre tronqué — résultats partiels`, 'WARN')
+  } catch (e) {
+    onLog(`Erreur trees API: ${e.message}`, 'ERROR')
+    return
+  }
+
+  const agentFiles = tree.filter(f =>
+    f.type === 'blob' && /(?:^|\/)(AGENTS?|agents?)\.md$/.test(f.path)
+  )
+
+  onLog(`${agentFiles.length} fichier(s) agents.md trouvé(s) dans ${repo}`, 'INFO')
+  onTotal(agentFiles.length)
+
+  const BATCH = 8
+  for (let i = 0; i < agentFiles.length; i += BATCH) {
+    if (checkStop()) break
+
+    await Promise.allSettled(agentFiles.slice(i, i + BATCH).map(async (file) => {
+      if (checkStop()) return
+
+      const rawUrl = `https://raw.githubusercontent.com/${repo}/HEAD/${file.path}`
+      onLog(`> ${rawUrl}`, 'TRACE')
+
+      try {
+        const r = await fetch(rawUrl, {
+          headers: { 'User-Agent': 'skillshub-crawler/2.0' },
+          signal: AbortSignal.timeout(8000),
+        })
+        if (!r.ok) { onFail(`${file.path} — HTTP ${r.status}`); return }
+
+        const content = await r.text()
+        if (!content.trim()) { onSkip(); return }
+
+        const { agent, reason } = parseAgentMarkdown(content)
+        onLog(`  [${file.path}] → ${reason}`, 'TRACE')
+
+        if (!agent) { onSkip(); return }
+
+        onSkill({
+          name:         agent.name,
+          description:  agent.description,
+          source_url:   `https://github.com/${repo}/blob/main/${file.path}`,
+          source_name:  `GitHub / ${repo}`,
+          category:     config.category || 'Claude Code Skill',
+          pricing:      'free',
+          version:      agent.version,
+          tags:         agent.tags,
+          features:     agent.features,
+          readme:       content,
+        })
+      } catch (e) {
+        onFail(`${file.path} — ${e.message}`)
+      }
+    }))
+  }
+}
+
+// ─── GitHub code search crawler (agents) ─────────────────────────────────────
+
+export async function crawlGithubAgentFiles(config, {
+  onSkill, onLog, onTotal, onFail = () => {}, onSkip = () => {}, checkStop,
+}) {
+  const query = config.url.trim()
+  const headers = githubHeaders()
+
+  onLog(`Recherche GitHub code (agents): ${query}`, 'INFO')
+
+  const queries = /filename:/i.test(query)
+    ? [query]
+    : [
+        `filename:agents.md ${query}`,
+        `filename:AGENTS.md ${query}`,
+        `filename:agent.md ${query}`,
+      ]
+
+  const seen  = new Set()
+  const items = []
+
+  for (const q of queries) {
+    if (checkStop()) break
+    const searchUrl = `https://api.github.com/search/code?q=${encodeURIComponent(q)}&per_page=100`
+    onLog(`> ${searchUrl}`, 'DEBUG')
+    try {
+      const res = await fetch(searchUrl, { headers, signal: AbortSignal.timeout(15000) })
+      if (!res.ok) {
+        const hint = res.status === 401 ? ' — ajoutez GITHUB_TOKEN dans .env'
+                   : res.status === 403 ? ' — rate-limit GitHub: attendez ou ajoutez GITHUB_TOKEN'
+                   : ''
+        onLog(`GitHub API ${res.status}${hint} pour: ${q}`, 'ERROR')
+        continue
+      }
+      const data = await res.json()
+      for (const item of (data.items || [])) {
+        if (!seen.has(item.html_url)) {
+          seen.add(item.html_url)
+          items.push(item)
+        }
+      }
+      onLog(`${data.items?.length ?? 0} résultat(s) pour: ${q}`, 'DEBUG')
+    } catch (e) {
+      onLog(`Erreur search: ${e.message}`, 'ERROR')
+    }
+  }
+
+  onTotal(items.length)
+  onLog(`${items.length} fichier(s) à vérifier`, 'INFO')
+
+  const BATCH = 8
+  for (let i = 0; i < items.length; i += BATCH) {
+    if (checkStop()) break
+
+    await Promise.allSettled(items.slice(i, i + BATCH).map(async (item) => {
+      if (checkStop()) return
+
+      const rawUrl = item.download_url ||
+        `https://raw.githubusercontent.com/${item.repository.full_name}/HEAD/${item.path}`
+      onLog(`> ${rawUrl}`, 'TRACE')
+
+      try {
+        const r = await fetch(rawUrl, {
+          headers: { 'User-Agent': 'skillshub-crawler/2.0' },
+          signal: AbortSignal.timeout(8000),
+        })
+        if (!r.ok) { onFail(`${item.path} — HTTP ${r.status}`); return }
+
+        const content = await r.text()
+        if (!content.trim()) { onSkip(); return }
+
+        const { agent, reason } = parseAgentMarkdown(content)
+        onLog(`  [${item.repository.full_name}/${item.path}] → ${reason}`, 'TRACE')
+
+        if (!agent) { onSkip(); return }
+
+        onSkill({
+          name:         agent.name,
+          description:  agent.description,
+          source_url:   item.html_url,
+          source_name:  `GitHub / ${item.repository.full_name}`,
+          category:     config.category || 'Claude Code Skill',
+          pricing:      'free',
+          version:      agent.version,
+          tags:         agent.tags,
+          features:     agent.features,
+          readme:       content,
+        })
+      } catch (e) {
+        onFail(`${item.path} — ${e.message}`)
+      }
+    }))
+  }
+}
+
 // ─── GitHub code search crawler ───────────────────────────────────────────────
 
 export async function crawlGithubSkillFiles(config, {
