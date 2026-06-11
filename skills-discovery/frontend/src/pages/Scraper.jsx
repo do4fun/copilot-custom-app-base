@@ -15,8 +15,8 @@ const CRAWLER_TYPES = [
   { value: 'github-awesome',     label: 'GitHub Awesome List',                       group: 'Général' },
   { value: 'github-search',      label: 'GitHub Search',                             group: 'Général' },
   { value: 'npm',                label: 'npm Registry',                              group: 'Général' },
-  { value: 'generic',            label: 'Page web générique',                        group: 'Général' },
   { value: 'web-segment',        label: 'Segmentation web IA (LLM)',                 group: 'Web IA' },
+  { value: 'generic',            label: 'Page web générique (basique, sans IA)',     group: 'Web IA' },
 ]
 
 const CATEGORIES = ['MCP Server', 'Claude Code Skill', 'AI Coding Tool', 'AI Productivity Tool', 'Software']
@@ -74,7 +74,7 @@ function formatTs(ts) {
 }
 
 function ConfigForm({ initial, onSave, onCancel }) {
-  const [form, setForm] = useState(initial || { name: '', url: '', type: 'github-search', category: 'MCP Server' })
+  const [form, setForm] = useState(initial || { name: '', url: '', type: 'web-segment', category: 'AI Productivity Tool' })
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }))
   const typeInfo = {
     'github-skill-repo':  'URL d\'un repo GitHub de skills Claude Code (ex: github.com/anthropics/claude-code-skills)',
@@ -110,6 +110,12 @@ function ConfigForm({ initial, onSave, onCancel }) {
           </select>
         </div>
       </div>
+      {form.type === 'web-segment' && (
+        <div className="flex items-start gap-2 bg-teal-950 border border-teal-800 rounded-lg px-3 py-2 text-xs text-teal-300">
+          <span className="mt-0.5 flex-shrink-0">✦</span>
+          <span>Segmentation IA — chaque section de la page est analysée par Claude Haiku pour détecter les skills. Requiert <code className="font-mono text-teal-200">ANTHROPIC_API_KEY</code>.</span>
+        </div>
+      )}
       <div>
         <label className="block text-xs text-gray-400 mb-1">URL / Requête</label>
         <input value={form.url} onChange={e => set('url', e.target.value)}
