@@ -5,6 +5,7 @@ import { crawlGithubAwesome, crawlGithubSearch } from '../crawlers/github.js'
 import { crawlGithubSkillFiles, crawlGithubSkillRepo, crawlGithubAgentFiles, crawlGithubAgentRepo } from '../crawlers/github-skills.js'
 import { crawlNpm } from '../crawlers/npm.js'
 import { crawlGeneric } from '../crawlers/generic.js'
+import { crawlWebSegment } from '../crawlers/web-segment.js'
 
 const router = new Hono()
 
@@ -212,6 +213,7 @@ async function runSession(sid, cfg) {
       case 'github-agent-repo':   await crawlGithubAgentRepo(cfg, ctx);    break
       case 'npm':                 await crawlNpm(cfg, ctx);                 break
       case 'generic':             await crawlGeneric(cfg, ctx);             break
+      case 'web-segment':         await crawlWebSegment(cfg, ctx);          break
       default: onLog(`Type inconnu: ${cfg.type}`)
     }
 

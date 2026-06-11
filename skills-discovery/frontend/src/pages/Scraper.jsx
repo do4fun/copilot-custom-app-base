@@ -8,14 +8,15 @@ import {
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const CRAWLER_TYPES = [
-  { value: 'github-skill-repo',  label: 'GitHub — repo de skills (Trees API)',     group: 'Skills' },
+  { value: 'github-skill-repo',  label: 'GitHub — repo de skills (Trees API)',      group: 'Skills' },
   { value: 'github-skill-files', label: 'GitHub — recherche skill.md (code search)', group: 'Skills' },
-  { value: 'github-agent-repo',  label: 'GitHub — repo d\'agents (Trees API)',      group: 'Agents' },
+  { value: 'github-agent-repo',  label: 'GitHub — repo d\'agents (Trees API)',       group: 'Agents' },
   { value: 'github-agent-files', label: 'GitHub — recherche agents.md (code search)', group: 'Agents' },
-  { value: 'github-awesome',     label: 'GitHub Awesome List',                      group: 'Général' },
-  { value: 'github-search',      label: 'GitHub Search',                            group: 'Général' },
-  { value: 'npm',                label: 'npm Registry',                             group: 'Général' },
-  { value: 'generic',            label: 'Page web générique',                       group: 'Général' },
+  { value: 'github-awesome',     label: 'GitHub Awesome List',                       group: 'Général' },
+  { value: 'github-search',      label: 'GitHub Search',                             group: 'Général' },
+  { value: 'npm',                label: 'npm Registry',                              group: 'Général' },
+  { value: 'generic',            label: 'Page web générique',                        group: 'Général' },
+  { value: 'web-segment',        label: 'Segmentation web IA (LLM)',                 group: 'Web IA' },
 ]
 
 const CATEGORIES = ['MCP Server', 'Claude Code Skill', 'AI Coding Tool', 'AI Productivity Tool', 'Software']
@@ -40,14 +41,15 @@ const LOG_LEVEL_COLORS = {
 }
 
 const TYPE_LABELS = {
-  'github-skill-repo':  { label: 'Skills repo', color: 'bg-indigo-900 text-indigo-300' },
+  'github-skill-repo':  { label: 'Skills repo',   color: 'bg-indigo-900 text-indigo-300' },
   'github-skill-files': { label: 'Skills search', color: 'bg-indigo-900 text-indigo-300' },
-  'github-agent-repo':  { label: 'Agents repo',  color: 'bg-violet-900 text-violet-300' },
+  'github-agent-repo':  { label: 'Agents repo',   color: 'bg-violet-900 text-violet-300' },
   'github-agent-files': { label: 'Agents search', color: 'bg-violet-900 text-violet-300' },
-  'github-awesome':     { label: 'GH Awesome',   color: 'bg-gray-700 text-gray-300' },
-  'github-search':      { label: 'GH Search',    color: 'bg-gray-700 text-gray-300' },
-  npm:                  { label: 'npm',           color: 'bg-red-900 text-red-300' },
-  generic:              { label: 'Web',           color: 'bg-blue-900 text-blue-300' },
+  'github-awesome':     { label: 'GH Awesome',    color: 'bg-gray-700 text-gray-300' },
+  'github-search':      { label: 'GH Search',     color: 'bg-gray-700 text-gray-300' },
+  npm:                  { label: 'npm',            color: 'bg-red-900 text-red-300' },
+  generic:              { label: 'Web',            color: 'bg-blue-900 text-blue-300' },
+  'web-segment':        { label: 'Web IA',         color: 'bg-teal-900 text-teal-300' },
 }
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
@@ -83,6 +85,7 @@ function ConfigForm({ initial, onSave, onCancel }) {
     'github-search':      'Requête de recherche GitHub (ex: topic:mcp-server stars:>10)',
     'npm':                'Recherche npm (ex: @modelcontextprotocol  ou  mcp-server)',
     'generic':            'URL d\'une page web à scraper (ex: https://example.com/tools)',
+    'web-segment':        'URL d\'une page web à segmenter et analyser par IA (ex: https://docs.example.com/guide)',
   }
   return (
     <div className="bg-gray-900 border border-gray-700 rounded-xl p-4 space-y-3">
@@ -97,7 +100,7 @@ function ConfigForm({ initial, onSave, onCancel }) {
           <label className="block text-xs text-gray-400 mb-1">Type</label>
           <select value={form.type} onChange={e => set('type', e.target.value)}
             className="w-full bg-gray-800 border border-gray-600 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-indigo-500">
-            {['Skills', 'Agents', 'Général'].map(group => (
+            {['Skills', 'Agents', 'Général', 'Web IA'].map(group => (
               <optgroup key={group} label={group}>
                 {CRAWLER_TYPES.filter(t => t.group === group).map(t => (
                   <option key={t.value} value={t.value}>{t.label}</option>
