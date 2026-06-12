@@ -1,160 +1,139 @@
-const FETCH_OPTS = { headers: { 'User-Agent': 'skillshub-crawler/2.0' } }
+const GITHUB_API = 'https://api.github.com'
+const BATCH_SIZE = 15
 
-async function fetchText(url) {
-  const res = await fetch(url, FETCH_OPTS)
-  if (!res.ok) throw new Error(`HTTP ${res.status} — ${url}`)
+export function ghHeaders() {
+  const headers = {
+    Accept: 'application/vnd.github+json',
+    'User-Agent': 'SkillsHub-Crawler',
+  }
+  if (process.env.GITHUB_TOKEN) headers.Authorization = `Bearer ${process.env.GITHUB_TOKEN}`
+  return headers
+}
+
+export async function ghFetch(url, accept) {
+  const headers = ghHeaders()
+  if (accept) headers.Accept = accept
+  const res = await fetch(url, { headers })
+  if (!res.ok) throw new Error(`GitHub ${res.status} sur ${url}`)
+  return res
+}
+
+/** Extrait owner/repo d'une URL ou d'un slug github. */
+export function parseRepoUrl(url) {
+  const m = String(url).match(/github\.com\/([^/\s]+)\/([^/\s#?]+)/) || String(url).match(/^([\w.-]+)\/([\w.-]+)$/)
+  if (!m) return null
+  return { owner: m[1], repo: m[2].replace(/\.git$/, '') }
+}
+
+export async function fetchReadme(owner, repo) {
+  const res = await ghFetch(`${GITHUB_API}/repos/${owner}/${repo}/readme`, 'application/vnd.github.raw+json')
   return res.text()
 }
 
-async function fetchJson(url) {
-  const res = await fetch(url, {
-    headers: { Accept: 'application/vnd.github.v3+json', 'User-Agent': 'skillshub-crawler/2.0' },
-  })
-  if (!res.ok) throw new Error(`GitHub API ${res.status} — ${url}`)
-  return res.json()
+function starsToScore(stars) {
+  if (!stars) return 0
+  return Math.min(9.9, Number((Math.log10(stars + 1) * 2.2).toFixed(1)))
 }
 
-// Try skill.md first (Claude Code skill format), then README.md.
-// Returns { type, content, blobUrl? } or null. Works for any github.com URL,
-// including directory URLs (/tree/branch/path) — looks inside the subdirectory.
-async function fetchReadme(githubUrl) {
-  const m = (githubUrl || '').match(/github\.com\/([^/]+)\/([^/\s?#]+)/)
-  if (!m) return null
-  const [, owner, repo] = m
-
-  // Detect subdirectory path from tree/ URLs: /tree/{branch}/{subpath}
-  const treeM = githubUrl.match(/\/tree\/[^/]+\/([^?#]+)/)
-  const subpath = treeM ? treeM[1].replace(/\/$/, '') : ''
-
-  const base = subpath
-    ? `https://raw.githubusercontent.com/${owner}/${repo}/main/${subpath}`
-    : `https://raw.githubusercontent.com/${owner}/${repo}/main`
-
-  // In a subdirectory, try SKILL.md (uppercase Anthropic convention) before skill.md
-  // skill.md: full content — it's the skill definition itself
-  // README.md: cap at 20 000 chars (READMEs can be multi-MB)
-  const filesToTry = subpath
-    ? [['SKILL.md', Infinity], ['skill.md', Infinity], ['README.md', 20000]]
-    : [['skill.md', Infinity],                         ['README.md', 20000]]
-
-  for (const [file, maxLen] of filesToTry) {
-    try {
-      const res = await fetch(`${base}/${file}`, {
-        ...FETCH_OPTS,
-        signal: AbortSignal.timeout(5000),
-      })
-      if (res.ok) {
-        const text = await res.text()
-        const content = maxLen === Infinity ? text : text.slice(0, maxLen)
-        // When found inside a subdirectory, provide the corrected blob URL so
-        // source_url points to the actual file, not the directory.
-        const blobUrl = subpath
-          ? `https://github.com/${owner}/${repo}/blob/main/${subpath}/${file}`
-          : null
-        return { type: file, content, blobUrl }
-      }
-    } catch {}
+function readmeExcerpt(readme) {
+  if (!readme) return null
+  // première ligne de texte significative hors titres, badges et liens d'images
+  const lines = readme.split('\n').map((l) => l.trim())
+  for (const line of lines) {
+    if (!line || line.startsWith('#') || line.startsWith('![') || line.startsWith('[!') || line.startsWith('<')) continue
+    if (line.length >= 20) return line.slice(0, 400)
   }
   return null
 }
 
-// Fetch readmes for a batch of items in parallel, return array matching input order
-async function batchFetchReadmes(items, urlKey, onLog, batchSize = 15) {
-  const results = new Array(items.length).fill(null)
-  for (let i = 0; i < items.length; i += batchSize) {
-    const slice = items.slice(i, i + batchSize)
-    const fetched = await Promise.allSettled(slice.map(async (item) => {
-      const srcUrl = item[urlKey]
-      onLog(`> ${srcUrl}`, 'TRACE')
-      return fetchReadme(srcUrl)
-    }))
-    fetched.forEach((r, j) => {
-      if (r.status === 'fulfilled' && r.value) {
-        results[i + j] = r.value
-        onLog(`  [${r.value.type}] ${slice[j][urlKey]}`, 'DEBUG')
-      }
+async function processBatches(items, ctx, worker) {
+  for (let i = 0; i < items.length; i += BATCH_SIZE) {
+    if (ctx.checkStop()) return
+    await ctx.waitWhilePaused()
+    if (ctx.checkStop()) return
+    const batch = items.slice(i, i + BATCH_SIZE)
+    await Promise.all(batch.map((item) => worker(item).catch((err) => ctx.onFail(String(err.message)))))
+  }
+}
+
+/**
+ * Awesome list : fetch du README du repo, extraction des liens markdown,
+ * puis fetch du README de chaque repo cible (batchs de 15).
+ */
+export async function crawlGithubAwesome(config, ctx) {
+  const parsed = parseRepoUrl(config.url)
+  if (!parsed) throw new Error(`URL de repo GitHub invalide : ${config.url}`)
+
+  ctx.onLog(`Lecture de la liste awesome ${parsed.owner}/${parsed.repo}`)
+  const readme = await fetchReadme(parsed.owner, parsed.repo)
+
+  // liens markdown [name](url) pointant vers des repos GitHub
+  const seen = new Set()
+  const links = []
+  for (const m of readme.matchAll(/\[([^\]]+)\]\((https:\/\/github\.com\/[^)\s]+)\)/g)) {
+    const target = parseRepoUrl(m[2])
+    if (!target) continue
+    const key = `${target.owner}/${target.repo}`.toLowerCase()
+    if (seen.has(key) || key.startsWith(`${parsed.owner.toLowerCase()}/`)) continue
+    seen.add(key)
+    links.push({ label: m[1].trim(), ...target })
+  }
+
+  ctx.onLog(`${links.length} repos référencés trouvés`)
+  ctx.onTotal(links.length)
+
+  await processBatches(links, ctx, async (link) => {
+    const res = await ghFetch(`${GITHUB_API}/repos/${link.owner}/${link.repo}`)
+    const repo = await res.json()
+    let readmeText = null
+    try {
+      readmeText = await fetchReadme(link.owner, link.repo)
+    } catch {
+      /* repo sans README */
+    }
+    await ctx.onSkill({
+      name: repo.full_name || link.label,
+      description: repo.description || readmeExcerpt(readmeText) || link.label,
+      source_url: repo.html_url,
+      pricing: 'free',
+      popularity_score: starsToScore(repo.stargazers_count),
+      tags: repo.topics || [],
+      readme: readmeText ? readmeText.slice(0, 8000) : null,
     })
-  }
-  return results
+  })
 }
 
-function parseAwesomeMarkdown(markdown, category) {
-  const results = []
-  const re = /^[-*]\s+\[([^\]]{1,100})\]\((https?:\/\/[^)]+)\)(?:\s*[-—–:]\s*(.+))?/gm
-  let m
-  while ((m = re.exec(markdown)) !== null) {
-    const url = m[2].trim()
-    if (/\.(png|jpg|gif|svg|ico)(\?|$)/i.test(url)) continue
-    results.push({
-      name:        m[1].trim(),
-      description: (m[3] || '').replace(/\s+/g, ' ').trim().slice(0, 500),
-      source_url:  url,
-      source_name: 'GitHub',
-      category:    category || 'MCP Server',
-      pricing:     'free',
-      tags:        ['mcp', 'open-source'],
-    })
-  }
-  return results
-}
+/**
+ * GitHub Search : recherche de repos par topic/keywords (config.url = query),
+ * tri par stars, fetch des READMEs en batch.
+ */
+export async function crawlGithubSearch(config, ctx) {
+  const query = encodeURIComponent(config.url)
+  ctx.onLog(`Recherche GitHub : ${config.url}`)
 
-export async function crawlGithubAwesome(config, { onSkill, onLog, onTotal, onFail = () => {}, checkStop, knownUrls = new Set(), knownNames = new Set() }) {
-  const { url, category } = config
-  let rawUrl = url
-  const m = url.match(/github\.com\/([^/]+)\/([^/\s?#]+)/)
-  if (m) rawUrl = `https://raw.githubusercontent.com/${m[1]}/${m[2]}/main/README.md`
-  onLog(`Fetching: ${rawUrl}`, 'DEBUG')
-  const markdown = await fetchText(rawUrl)
-  const all = parseAwesomeMarkdown(markdown, category)
-  onLog(`${all.length} entrées dans le README — récupération des détails…`, 'INFO')
-  onTotal(all.length)
-
-  const readmes = await batchFetchReadmes(all, 'source_url', onLog)
-  let skillMdCount = readmes.filter(r => r?.type === 'skill.md').length
-  if (skillMdCount) onLog(`${skillMdCount} fichier(s) skill.md trouvés`, 'INFO')
-
-  for (let i = 0; i < all.length; i++) {
-    if (checkStop()) break
-    const readme = readmes[i]
-    // If skill found inside a subdirectory, correct source_url to the actual file
-    const source_url = readme?.blobUrl || all[i].source_url
-    onSkill({ ...all[i], source_url, readme: readme?.content || '' })
-  }
-}
-
-export async function crawlGithubSearch(config, { onSkill, onLog, onTotal, onFail = () => {}, checkStop, knownUrls = new Set(), knownNames = new Set() }) {
-  const { url, category } = config
-  const query = url.startsWith('http') ? new URL(url).searchParams.get('q') || url : url
-  onLog(`GitHub search: ${query}`, 'INFO')
-  const apiUrl = `https://api.github.com/search/repositories?q=${encodeURIComponent(query)}&sort=stars&per_page=100`
-  onLog(`> ${apiUrl}`, 'DEBUG')
-  const data = await fetchJson(apiUrl)
+  const res = await ghFetch(`${GITHUB_API}/search/repositories?q=${query}&sort=stars&order=desc&per_page=50`)
+  const data = await res.json()
   const repos = data.items || []
-  onLog(`${repos.length} dépôts — récupération des détails…`, 'INFO')
-  onTotal(repos.length)
 
-  // Map repos to objects with source_url for the generic readme fetcher
-  const repoItems = repos.map(r => ({ source_url: r.html_url, _repo: r }))
-  const readmes = await batchFetchReadmes(repoItems, 'source_url', onLog)
-  let skillMdCount = readmes.filter(r => r?.type === 'skill.md').length
-  if (skillMdCount) onLog(`${skillMdCount} fichier(s) skill.md trouvés`)
+  ctx.onLog(`${repos.length} repos trouvés (total: ${data.total_count})`)
+  ctx.onTotal(repos.length)
 
-  for (let i = 0; i < repos.length; i++) {
-    if (checkStop()) break
-    const repo = repos[i]
-    const readme = readmes[i]
-    // If a skill file was found inside a subdirectory, correct source_url to it
-    const source_url = readme?.blobUrl || repo.html_url
-    onSkill({
-      name:             repo.name,
-      description:      (repo.description || '').slice(0, 500),
-      source_url,
-      source_name:      'GitHub',
-      category:         category || 'AI Coding Tool',
-      pricing:          'free',
-      popularity_score: parseFloat(Math.min(9.9, repo.stargazers_count / 1000).toFixed(2)),
-      tags:             (repo.topics || []).slice(0, 10),
-      readme:           readme?.content || '',
+  await processBatches(repos, ctx, async (repo) => {
+    let readmeText = null
+    try {
+      readmeText = await fetchReadme(repo.owner.login, repo.name)
+    } catch {
+      /* repo sans README */
+    }
+    await ctx.onSkill({
+      name: repo.full_name,
+      description: repo.description || readmeExcerpt(readmeText) || repo.name,
+      source_url: repo.html_url,
+      pricing: 'free',
+      popularity_score: starsToScore(repo.stargazers_count),
+      tags: repo.topics || [],
+      version: repo.default_branch,
+      readme: readmeText ? readmeText.slice(0, 8000) : null,
     })
-  }
+  })
 }

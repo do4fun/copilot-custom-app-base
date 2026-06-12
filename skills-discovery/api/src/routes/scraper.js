@@ -2,236 +2,243 @@ import { Hono } from 'hono'
 import { db, upsertSkill, appendLog, getInventory } from '../db.js'
 import { upsertSkillVector } from '../vector-db.js'
 import { crawlGithubAwesome, crawlGithubSearch } from '../crawlers/github.js'
-import { crawlGithubSkillFiles, crawlGithubSkillRepo } from '../crawlers/github-skills.js'
+import {
+  crawlGithubSkillRepo,
+  crawlGithubSkillFiles,
+  crawlGithubAgentRepo,
+  crawlGithubAgentFiles,
+} from '../crawlers/github-skills.js'
 import { crawlNpm } from '../crawlers/npm.js'
 import { crawlGeneric } from '../crawlers/generic.js'
+import { crawlWebSegment } from '../crawlers/web-segment.js'
 
 const router = new Hono()
 
-// In-memory session control
-const _stopFlags = new Map()
 const _pauseFlags = new Map()
+const _stopFlags = new Map()
 
-function sessionToObj(row) {
-  return {
-    ...row,
-    logs:      JSON.parse(row.logs || '[]'),
-    is_active: undefined,
-  }
-}
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 
-// ─── Configs ─────────────────────────────────────────────────────────────────
+/* ─── Configs CRUD ─── */
 
 router.get('/configs', (c) => {
-  const rows = db.prepare('SELECT * FROM scraper_configs ORDER BY created_at ASC').all()
-  return c.json(rows)
+  return c.json(db.prepare('SELECT * FROM scraper_configs ORDER BY created_at DESC').all())
 })
 
 router.post('/configs', async (c) => {
   const body = await c.req.json()
-  const { name, url, type = 'generic', category = 'AI Coding Tool' } = body
-  if (!name?.trim() || !url?.trim()) return c.json({ error: 'name et url requis' }, 422)
-  const { lastInsertRowid } = db.prepare(
-    'INSERT INTO scraper_configs (name, url, type, category) VALUES (?,?,?,?)'
-  ).run(name.trim(), url.trim(), type, category)
-  const row = db.prepare('SELECT * FROM scraper_configs WHERE id=?').get(lastInsertRowid)
-  return c.json(row, 201)
+  if (!body.name || !body.url) return c.json({ error: 'name et url requis' }, 400)
+  const info = db
+    .prepare('INSERT INTO scraper_configs (name, url, type, category) VALUES (?, ?, ?, ?)')
+    .run(body.name, body.url, body.type || 'generic', body.category || 'AI Coding Tool')
+  return c.json(db.prepare('SELECT * FROM scraper_configs WHERE id = ?').get(info.lastInsertRowid), 201)
 })
 
 router.put('/configs/:id', async (c) => {
   const id = Number(c.req.param('id'))
-  if (!db.prepare('SELECT id FROM scraper_configs WHERE id=?').get(id))
-    return c.json({ error: 'Config introuvable' }, 404)
+  const cfg = db.prepare('SELECT * FROM scraper_configs WHERE id = ?').get(id)
+  if (!cfg) return c.json({ error: 'Config introuvable' }, 404)
   const body = await c.req.json()
-  db.prepare(`UPDATE scraper_configs SET name=?, url=?, type=?, category=?, is_active=?, updated_at=datetime('now') WHERE id=?`)
-    .run(body.name, body.url, body.type || 'generic', body.category || 'AI Coding Tool', body.is_active ? 1 : 0, id)
-  return c.json(db.prepare('SELECT * FROM scraper_configs WHERE id=?').get(id))
+  db.prepare(
+    "UPDATE scraper_configs SET name = ?, url = ?, type = ?, category = ?, is_active = ?, updated_at = datetime('now') WHERE id = ?"
+  ).run(
+    body.name ?? cfg.name,
+    body.url ?? cfg.url,
+    body.type ?? cfg.type,
+    body.category ?? cfg.category,
+    body.is_active ?? cfg.is_active,
+    id
+  )
+  return c.json(db.prepare('SELECT * FROM scraper_configs WHERE id = ?').get(id))
 })
 
 router.delete('/configs/:id', (c) => {
-  db.prepare('DELETE FROM scraper_configs WHERE id=?').run(Number(c.req.param('id')))
+  const info = db.prepare('DELETE FROM scraper_configs WHERE id = ?').run(Number(c.req.param('id')))
+  if (!info.changes) return c.json({ error: 'Config introuvable' }, 404)
   return c.body(null, 204)
 })
 
-// ─── Sessions ─────────────────────────────────────────────────────────────────
+/* ─── Sessions lifecycle ─── */
 
 router.get('/sessions', (c) => {
-  const rows = db.prepare('SELECT * FROM scraper_sessions ORDER BY created_at DESC LIMIT 100').all()
-  return c.json(rows.map(sessionToObj))
+  const sessions = db
+    .prepare('SELECT id, name, source, status, progress, total, found, failed, started_at, finished_at, created_at FROM scraper_sessions ORDER BY id DESC LIMIT 100')
+    .all()
+  return c.json(sessions)
 })
 
 router.get('/sessions/:id', (c) => {
-  const row = db.prepare('SELECT * FROM scraper_sessions WHERE id=?').get(Number(c.req.param('id')))
-  if (!row) return c.json({ error: 'Session introuvable' }, 404)
-  return c.json(sessionToObj(row))
+  const session = db.prepare('SELECT * FROM scraper_sessions WHERE id = ?').get(Number(c.req.param('id')))
+  if (!session) return c.json({ error: 'Session introuvable' }, 404)
+  try {
+    session.logs = JSON.parse(session.logs || '[]')
+  } catch {
+    session.logs = []
+  }
+  return c.json(session)
 })
 
 router.post('/sessions', async (c) => {
-  const { config_id } = await c.req.json()
-  const cfg = db.prepare('SELECT * FROM scraper_configs WHERE id=?').get(Number(config_id))
-  if (!cfg) return c.json({ error: `Config inconnue: ${config_id}` }, 400)
+  const { config_id: configId } = await c.req.json()
+  const cfg = db.prepare('SELECT * FROM scraper_configs WHERE id = ?').get(Number(configId))
+  if (!cfg) return c.json({ error: 'Config introuvable' }, 404)
 
-  const { lastInsertRowid: sid } = db.prepare(
-    "INSERT INTO scraper_sessions (name, source, status, total) VALUES (?,?,'pending',0)"
-  ).run(cfg.name, cfg.type)
+  const info = db
+    .prepare(
+      "INSERT INTO scraper_sessions (name, source, status, started_at) VALUES (?, ?, 'running', datetime('now'))"
+    )
+    .run(cfg.name, cfg.url)
+  const sid = Number(info.lastInsertRowid)
 
-  _stopFlags.set(sid, false)
   _pauseFlags.set(sid, false)
+  _stopFlags.set(sid, false)
 
-  // Launch Crawlee in background (non-blocking)
-  runSession(sid, cfg).catch(() => {})
+  // lancement en arrière-plan — la réponse part immédiatement
+  runSession(sid, cfg).catch((err) => {
+    appendLog(sid, `Erreur fatale : ${err.message}`, 'ERROR')
+    db.prepare("UPDATE scraper_sessions SET status = 'failed', finished_at = datetime('now') WHERE id = ?").run(sid)
+  })
 
-  return c.json(sessionToObj(db.prepare('SELECT * FROM scraper_sessions WHERE id=?').get(sid)), 201)
+  return c.json(db.prepare('SELECT * FROM scraper_sessions WHERE id = ?').get(sid), 201)
 })
 
 router.post('/sessions/:id/pause', (c) => {
   const id = Number(c.req.param('id'))
-  const row = db.prepare('SELECT status FROM scraper_sessions WHERE id=?').get(id)
-  if (!row) return c.json({ error: 'Session introuvable' }, 404)
-  if (row.status !== 'running') return c.json({ error: "Session n'est pas en cours" }, 400)
+  const session = db.prepare('SELECT * FROM scraper_sessions WHERE id = ?').get(id)
+  if (!session) return c.json({ error: 'Session introuvable' }, 404)
   _pauseFlags.set(id, true)
-  db.prepare("UPDATE scraper_sessions SET status='paused', paused_at=datetime('now') WHERE id=?").run(id)
-  return c.json({ status: 'paused' })
+  db.prepare("UPDATE scraper_sessions SET status = 'paused', paused_at = datetime('now') WHERE id = ?").run(id)
+  appendLog(id, 'Session mise en pause', 'INFO')
+  return c.json({ id, status: 'paused' })
 })
 
 router.post('/sessions/:id/resume', (c) => {
   const id = Number(c.req.param('id'))
-  const row = db.prepare('SELECT status FROM scraper_sessions WHERE id=?').get(id)
-  if (!row) return c.json({ error: 'Session introuvable' }, 404)
-  if (row.status !== 'paused') return c.json({ error: "Session n'est pas en pause" }, 400)
+  const session = db.prepare('SELECT * FROM scraper_sessions WHERE id = ?').get(id)
+  if (!session) return c.json({ error: 'Session introuvable' }, 404)
   _pauseFlags.set(id, false)
-  db.prepare("UPDATE scraper_sessions SET status='running', paused_at=NULL WHERE id=?").run(id)
-  return c.json({ status: 'running' })
+  db.prepare("UPDATE scraper_sessions SET status = 'running', paused_at = NULL WHERE id = ?").run(id)
+  appendLog(id, 'Session reprise', 'INFO')
+  return c.json({ id, status: 'running' })
 })
 
 router.post('/sessions/:id/stop', (c) => {
   const id = Number(c.req.param('id'))
-  const row = db.prepare('SELECT status FROM scraper_sessions WHERE id=?').get(id)
-  if (!row) return c.json({ error: 'Session introuvable' }, 404)
-  if (!['running', 'paused'].includes(row.status)) return c.json({ error: "Session n'est pas active" }, 400)
+  const session = db.prepare('SELECT * FROM scraper_sessions WHERE id = ?').get(id)
+  if (!session) return c.json({ error: 'Session introuvable' }, 404)
   _stopFlags.set(id, true)
   _pauseFlags.set(id, false)
-  return c.json({ status: 'stopping' })
+  appendLog(id, 'Arrêt demandé', 'WARN')
+  return c.json({ id, status: 'stopping' })
 })
 
 router.delete('/sessions/:id', (c) => {
-  db.prepare('DELETE FROM scraper_sessions WHERE id=?').run(Number(c.req.param('id')))
+  const id = Number(c.req.param('id'))
+  _stopFlags.set(id, true)
+  const info = db.prepare('DELETE FROM scraper_sessions WHERE id = ?').run(id)
+  if (!info.changes) return c.json({ error: 'Session introuvable' }, 404)
   return c.body(null, 204)
 })
 
 router.post('/sessions/clear-all', (c) => {
-  db.prepare("DELETE FROM scraper_sessions WHERE status IN ('completed','failed','stopped')").run()
-  return c.body(null, 204)
+  const info = db
+    .prepare("DELETE FROM scraper_sessions WHERE status IN ('completed', 'failed', 'stopped')")
+    .run()
+  return c.json({ deleted: info.changes })
 })
 
-// ─── Session runner ───────────────────────────────────────────────────────────
-
-async function waitIfPaused(sid) {
-  while (_pauseFlags.get(sid)) {
-    await new Promise(r => setTimeout(r, 500))
-  }
-}
+/* ─── Runner ─── */
 
 async function runSession(sid, cfg) {
-  db.prepare("UPDATE scraper_sessions SET status='running', started_at=datetime('now') WHERE id=?").run(sid)
-  appendLog(sid, `Démarrage — type=${cfg.type} url=${cfg.url}`, 'INFO')
+  appendLog(sid, `Démarrage du crawl « ${cfg.name} » (type: ${cfg.type})`, 'INFO')
 
-  // ── Inventory ────────────────────────────────────────────────────────────────
-  const { urls: knownUrls, names: knownNames } = getInventory()
-  appendLog(sid, `Inventaire BD: ${knownNames.size} skills déjà enregistrés (${knownUrls.size} URLs connues)`, 'DEBUG')
-
-  const checkStop = () => !!_stopFlags.get(sid)
-  let found    = 0
+  const inventory = getInventory()
   let progress = 0
-  let failed   = 0
-  let total    = 0
+  let found = 0
+  let failed = 0
 
-  const onSkill = async (item) => {
-    await waitIfPaused(sid)
+  const updateCounters = () =>
+    db.prepare('UPDATE scraper_sessions SET progress = ?, found = ?, failed = ? WHERE id = ?').run(progress, found, failed, sid)
 
-    const normName = (item.name || '').trim().toLowerCase()
-    const normUrl  = (item.source_url || '').trim()
+  const ctx = {
+    category: cfg.category,
 
-    // Fast in-memory check before hitting the DB
-    if (knownNames.has(normName) || (normUrl && knownUrls.has(normUrl))) {
-      appendLog(sid, `~ ${item.name} (déjà en BD)`, 'DEBUG')
+    onSkill: async (item) => {
       progress++
-      db.prepare('UPDATE scraper_sessions SET progress=? WHERE id=?').run(progress, sid)
-      return
-    }
+      const nameKey = (item.name || '').toLowerCase()
+      const urlKey = (item.source_url || '').toLowerCase()
+      if ((nameKey && inventory.names.has(nameKey)) || (urlKey && inventory.urls.has(urlKey))) {
+        appendLog(sid, `Doublon ignoré : ${item.name}`, 'DEBUG')
+        updateCounters()
+        return
+      }
+      const added = upsertSkill({
+        category: cfg.category,
+        source_name: cfg.name,
+        ...item,
+      })
+      if (added) {
+        found++
+        if (nameKey) inventory.names.add(nameKey)
+        if (urlKey) inventory.urls.add(urlKey)
+        appendLog(sid, `✓ ${added.name}`, 'INFO')
+        // vectorisation fire-and-forget
+        Promise.resolve()
+          .then(() => upsertSkillVector(added, item, item.tags || []))
+          .catch(() => {})
+      } else {
+        appendLog(sid, `Doublon en base : ${item.name}`, 'DEBUG')
+      }
+      updateCounters()
+    },
 
-    const added = upsertSkill(item)
-    if (added) {
-      found++
-      knownNames.add(normName)
-      if (normUrl) knownUrls.add(normUrl)
-      const tags = (item.tags || []).slice(0, 5).join(', ')
-      appendLog(sid, [
-        `  cat=${item.category || '—'}`,
-        `prix=${item.pricing || '—'}`,
-        `score=${item.popularity_score || 0}`,
-        tags ? `tags=${tags}` : null,
-        normUrl ? `url=${normUrl}` : null,
-      ].filter(Boolean).join(' | '), 'TRACE')
-      // Fire-and-forget — vectorise the new skill without blocking the session
-      upsertSkillVector(added, item, item.tags || [])
-        .catch(e => appendLog(sid, `vector: ${e.message}`, 'DEBUG'))
-    }
-    progress++
-    appendLog(sid, added ? `+ ${item.name}` : `~ ${item.name} (existant)`, added ? 'INFO' : 'DEBUG')
-    db.prepare('UPDATE scraper_sessions SET progress=?, found=? WHERE id=?').run(progress, found, sid)
-  }
+    onLog: (msg, level = 'INFO') => appendLog(sid, msg, level),
 
-  const onLog = (msg, level = 'INFO') => appendLog(sid, msg, level)
+    onTotal: (n) => db.prepare('UPDATE scraper_sessions SET total = ? WHERE id = ?').run(n, sid),
 
-  const onTotal = (n) => {
-    total = n
-    db.prepare('UPDATE scraper_sessions SET total=? WHERE id=?').run(n, sid)
-  }
+    onFail: (msg) => {
+      failed++
+      progress++
+      appendLog(sid, `✗ ${msg}`, 'WARN')
+      updateCounters()
+    },
 
-  const onFail = (msg) => {
-    failed++
-    appendLog(sid, `✗ ${msg}`)
-    db.prepare('UPDATE scraper_sessions SET failed=? WHERE id=?').run(failed, sid)
-  }
+    onSkip: () => {
+      progress++
+      updateCounters()
+    },
 
-  // Called when a crawler rejects a candidate that doesn't meet skill criteria
-  const onSkip = () => {
-    progress++
-    db.prepare('UPDATE scraper_sessions SET progress=? WHERE id=?').run(progress, sid)
+    checkStop: () => !!_stopFlags.get(sid),
+
+    waitWhilePaused: async () => {
+      while (_pauseFlags.get(sid) && !_stopFlags.get(sid)) await sleep(500)
+    },
   }
 
   try {
-    const ctx = { onSkill, onLog, onTotal, onFail, onSkip, checkStop, knownUrls, knownNames }
     switch (cfg.type) {
-      case 'github-awesome':      await crawlGithubAwesome(cfg, ctx);      break
-      case 'github-search':       await crawlGithubSearch(cfg, ctx);       break
-      case 'github-skill-files':  await crawlGithubSkillFiles(cfg, ctx);   break
-      case 'github-skill-repo':   await crawlGithubSkillRepo(cfg, ctx);    break
-      case 'npm':                 await crawlNpm(cfg, ctx);                 break
-      case 'generic':             await crawlGeneric(cfg, ctx);             break
-      default: onLog(`Type inconnu: ${cfg.type}`)
+      case 'github-awesome':     await crawlGithubAwesome(cfg, ctx); break
+      case 'github-search':      await crawlGithubSearch(cfg, ctx); break
+      case 'github-skill-files': await crawlGithubSkillFiles(cfg, ctx); break
+      case 'github-skill-repo':  await crawlGithubSkillRepo(cfg, ctx); break
+      case 'github-agent-files': await crawlGithubAgentFiles(cfg, ctx); break
+      case 'github-agent-repo':  await crawlGithubAgentRepo(cfg, ctx); break
+      case 'npm':                await crawlNpm(cfg, ctx); break
+      case 'generic':            await crawlGeneric(cfg, ctx); break
+      case 'web-segment':        await crawlWebSegment(cfg, ctx); break
+      default:
+        throw new Error(`Type de crawler inconnu : ${cfg.type}`)
     }
 
-    if (_stopFlags.get(sid)) {
-      db.prepare("UPDATE scraper_sessions SET status='stopped', finished_at=datetime('now'), found=?, progress=?, failed=? WHERE id=?").run(found, progress, failed, sid)
-      appendLog(sid, 'Arrêt demandé', 'WARN')
-    } else {
-      db.prepare("UPDATE scraper_sessions SET status='completed', finished_at=datetime('now'), found=?, progress=?, failed=? WHERE id=?").run(found, progress, failed, sid)
-      appendLog(sid, [
-        `Terminé`,
-        `${progress - found} déjà en BD`,
-        `${found} nouveaux`,
-        `${failed} échec(s)`,
-        `${total} identifiés pour cette source`,
-      ].join(' · '), 'INFO')
-    }
-  } catch (e) {
-    db.prepare("UPDATE scraper_sessions SET status='failed', finished_at=datetime('now'), found=?, progress=?, failed=? WHERE id=?").run(found, progress, failed, sid)
-    appendLog(sid, `Erreur fatale: ${e.message}`, 'ERROR')
+    const finalStatus = _stopFlags.get(sid) ? 'stopped' : 'completed'
+    appendLog(sid, `Crawl terminé — ${found} skill(s) ajouté(s), ${failed} échec(s)`, 'INFO')
+    db.prepare("UPDATE scraper_sessions SET status = ?, finished_at = datetime('now') WHERE id = ?").run(finalStatus, sid)
+  } catch (err) {
+    appendLog(sid, `Erreur : ${err.message}`, 'ERROR')
+    db.prepare("UPDATE scraper_sessions SET status = 'failed', finished_at = datetime('now') WHERE id = ?").run(sid)
   } finally {
-    _stopFlags.delete(sid)
     _pauseFlags.delete(sid)
+    _stopFlags.delete(sid)
   }
 }
 

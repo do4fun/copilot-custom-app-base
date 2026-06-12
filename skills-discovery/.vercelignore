@@ -1,5 +1,0 @@
-# Prevent auto-detection of api/src files as separate serverless functions.
-# nft bundles these into api/index.js during build before this filter runs.
-api/src
-api/vercel
-api/node_modules

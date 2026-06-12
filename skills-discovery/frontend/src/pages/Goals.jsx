@@ -1,317 +1,247 @@
-import React, { useState, useRef, useEffect } from 'react'
-import { useNavigate } from 'react-router-dom'
-import MarkdownContent from '../components/MarkdownContent'
+import { useRef, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { decomposeGoal } from '../api'
 
-const EXAMPLE_GOALS = [
-  'Build a REST API with JWT authentication',
-  'Research the best databases for my project',
-  'Automate my deployment pipeline',
-  'Build a React dashboard with real-time data',
-]
+const ROLE_COLORS = {
+  architect: 'bg-purple-900 text-purple-300',
+  dev: 'bg-green-900 text-green-300',
+  analyst: 'bg-orange-900 text-orange-300',
+}
 
-const API_BASE = import.meta.env.VITE_API_URL ? `${import.meta.env.VITE_API_URL}/api` : '/api'
+function ExplainDrawer({ goal, tool, stepTitle, onClose }) {
+  const [text, setText] = useState('')
+  const [streaming, setStreaming] = useState(false)
+  const startedRef = useRef(false)
 
-// ─── Explain drawer ───────────────────────────────────────────────────────────
-
-function ExplainDrawer({ context, onClose }) {
-  const [content, setContent] = useState('')
-  const [loading, setLoading] = useState(true)
-  const abortRef = useRef(null)
-  const bodyRef = useRef(null)
-
-  useEffect(() => {
-    if (!context) return
-    setContent('')
-    setLoading(true)
-    const ctrl = new AbortController()
-    abortRef.current = ctrl
-
-    ;(async () => {
-      try {
-        const res = await fetch(`${API_BASE}/goals/explain`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(context),
-          signal: ctrl.signal,
-        })
+  if (!startedRef.current) {
+    startedRef.current = true
+    setStreaming(true)
+    fetch('/api/goals/explain', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        goal,
+        tool_name: tool.name,
+        tool_description: tool.description,
+        step_title: stepTitle,
+      }),
+    })
+      .then(async (res) => {
         const reader = res.body.getReader()
         const decoder = new TextDecoder()
-        setLoading(false)
-        while (true) {
+        for (;;) {
           const { done, value } = await reader.read()
           if (done) break
-          setContent(prev => prev + decoder.decode(value, { stream: true }))
-          if (bodyRef.current) bodyRef.current.scrollTop = bodyRef.current.scrollHeight
+          setText((prev) => prev + decoder.decode(value, { stream: true }))
         }
-      } catch (e) {
-        if (e.name !== 'AbortError') { setContent('Erreur de connexion.'); setLoading(false) }
-      }
-    })()
-
-    return () => ctrl.abort()
-  }, [context])
+      })
+      .catch((err) => setText((prev) => prev + `\n[Erreur : ${err.message}]`))
+      .finally(() => setStreaming(false))
+  }
 
   return (
-    <>
-      <div className="fixed inset-0 bg-black/50 z-40" onClick={onClose} />
-      <div className="fixed inset-y-0 right-0 w-full max-w-sm bg-gray-900 border-l border-gray-700 z-50 flex flex-col shadow-2xl">
-        <div className="flex items-start gap-3 px-4 py-3 border-b border-gray-700 flex-shrink-0">
-          <div className="flex-1 min-w-0">
-            <p className="text-xs text-gray-500 truncate">{context.step_title}</p>
-            <p className="text-sm font-semibold text-white">{context.tool_name}</p>
-            <p className="text-xs text-gray-400 mt-0.5">{context.tool_description}</p>
+    <div className="fixed inset-0 z-50 flex justify-end">
+      <div className="absolute inset-0 bg-black/60" onClick={onClose} />
+      <aside className="relative w-full max-w-md bg-gray-800 border-l border-gray-700 h-full overflow-y-auto p-5 space-y-3">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <h3 className="font-semibold text-gray-100">{tool.name}</h3>
+            <p className="text-xs text-gray-500">Étape : {stepTitle}</p>
           </div>
-          <button onClick={onClose} className="text-gray-500 hover:text-white text-xl leading-none flex-shrink-0 mt-0.5">×</button>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-200 text-xl leading-none">
+            ✕
+          </button>
         </div>
-        <div ref={bodyRef} className="flex-1 overflow-y-auto px-4 py-4">
-          {loading
-            ? <span className="text-gray-500 text-sm flex items-center gap-2"><span className="w-1.5 h-1.5 rounded-full bg-indigo-500 animate-pulse inline-block" /> Génération…</span>
-            : <MarkdownContent content={content} />
-          }
-        </div>
-      </div>
-    </>
+        <p className="text-sm text-gray-300 whitespace-pre-wrap leading-relaxed">
+          {text || (streaming ? 'Génération de l’explication…' : '')}
+          {streaming && <span className="animate-pulse text-blue-400"> ▌</span>}
+        </p>
+      </aside>
+    </div>
   )
 }
 
-// ─── Main page ────────────────────────────────────────────────────────────────
-
 export default function Goals() {
-  const navigate = useNavigate()
-  const [goal,    setGoal]    = useState('')
-  const [source,  setSource]  = useState('sqlite')
+  const [goal, setGoal] = useState('')
+  const [source, setSource] = useState('sqlite')
+  const [result, setResult] = useState(null)
   const [loading, setLoading] = useState(false)
-  const [error,   setError]   = useState(null)
-  const [result,  setResult]  = useState(null)
-  const [drawer,  setDrawer]  = useState(null)
+  const [error, setError] = useState(null)
+  const [explain, setExplain] = useState(null) // {tool, stepTitle}
 
   const handleSubmit = async (e) => {
     e.preventDefault()
     if (!goal.trim() || loading) return
-    setLoading(true); setError(null); setResult(null); setDrawer(null)
+    setLoading(true)
+    setError(null)
+    setResult(null)
     try {
-      const res = await decomposeGoal(goal.trim(), source)
-      setResult(res.data)
+      setResult(await decomposeGoal(goal.trim(), source))
     } catch (err) {
-      setError(err.response?.data?.detail || 'Échec. Vérifiez que l\'API est démarrée.')
+      setError(err.response?.data?.error || err.message)
     } finally {
       setLoading(false)
     }
   }
 
   return (
-    <div className="max-w-3xl mx-auto space-y-6">
-
-      {/* Header */}
-      <div>
-        <h1 className="text-2xl font-bold text-white mb-1">Goal Decomposition</h1>
-        <p className="text-gray-500 text-sm">Décrivez votre objectif — obtenez un plan en étapes claires avec les bons outils.</p>
+    <div className="max-w-4xl mx-auto space-y-5">
+      <div className="flex items-center justify-between">
+        <h1 className="text-xl font-bold text-gray-100">Décomposition de but</h1>
+        <Link to="/goals/log" className="text-sm text-gray-400 hover:text-gray-200">
+          Log de session →
+        </Link>
       </div>
 
-      {/* Form */}
-      <div className="bg-gray-800 border border-gray-700 rounded-xl p-5 space-y-4">
-
-        {/* Source toggle */}
-        <div className="flex items-center gap-3">
-          <span className="text-xs text-gray-500">Source :</span>
-          <div className="flex bg-gray-900 border border-gray-700 rounded-lg p-0.5 gap-0.5">
-            {[
-              { value: 'sqlite',        label: 'SQLite' },
-              { value: 'sqlite-vector', label: 'SQLite-vector' },
-            ].map(opt => (
-              <button key={opt.value} type="button" onClick={() => setSource(opt.value)}
-                className={`px-3 py-1 rounded-md text-xs font-medium transition-colors ${source === opt.value ? 'bg-indigo-700 text-white' : 'text-gray-400 hover:text-gray-200'}`}>
-                {opt.label}
-              </button>
-            ))}
-          </div>
-        </div>
-
+      <form onSubmit={handleSubmit} className="bg-gray-800 rounded-lg border border-gray-700 p-5 space-y-3">
         <textarea
           value={goal}
-          onChange={e => setGoal(e.target.value)}
-          onKeyDown={e => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) handleSubmit(e) }}
-          placeholder="Ex : je veux construire une API REST avec authentification JWT…"
+          onChange={(e) => setGoal(e.target.value)}
           rows={3}
-          className="w-full bg-gray-900 border border-gray-600 rounded-lg px-4 py-3 text-white placeholder-gray-600 focus:outline-none focus:border-indigo-500 text-sm resize-none"
+          placeholder="Décrivez votre objectif en langage naturel… (ex. : créer une API de gestion de tâches avec authentification)"
+          className="w-full bg-gray-700 border border-gray-600 text-gray-100 rounded px-3 py-2 placeholder-gray-500 focus:outline-none focus:border-blue-500"
         />
-
-        <div className="flex items-center gap-3">
-          <button onClick={handleSubmit} disabled={!goal.trim() || loading}
-            className="bg-indigo-600 hover:bg-indigo-700 disabled:bg-gray-700 disabled:text-gray-500 text-white px-5 py-2 rounded-lg text-sm font-medium transition-colors flex items-center gap-2">
-            {loading
-              ? <><svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg> Analyse…</>
-              : 'Décomposer'
-            }
+        <div className="flex flex-wrap items-center gap-4">
+          <div className="flex items-center gap-3 text-sm text-gray-300">
+            <label className="flex items-center gap-1.5 cursor-pointer">
+              <input
+                type="radio"
+                checked={source === 'sqlite'}
+                onChange={() => setSource('sqlite')}
+              />
+              Recherche FTS5 (SQLite)
+            </label>
+            <label className="flex items-center gap-1.5 cursor-pointer">
+              <input
+                type="radio"
+                checked={source === 'sqlite-vector'}
+                onChange={() => setSource('sqlite-vector')}
+              />
+              Recherche vectorielle (sémantique)
+            </label>
+          </div>
+          <button
+            type="submit"
+            disabled={loading || !goal.trim()}
+            className="ml-auto bg-blue-600 hover:bg-blue-500 text-white px-5 py-2 rounded disabled:opacity-40"
+          >
+            {loading ? 'Analyse en cours…' : 'Décomposer'}
           </button>
-          <span className="text-xs text-gray-600">ou Cmd+Entrée</span>
         </div>
+      </form>
 
-        {/* Examples */}
-        <div className="flex flex-wrap gap-2 pt-1 border-t border-gray-700">
-          {EXAMPLE_GOALS.map(ex => (
-            <button key={ex} onClick={() => { setGoal(ex); setResult(null) }}
-              className="text-xs text-gray-500 hover:text-indigo-400 transition-colors">
-              {ex}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {/* Error */}
-      {error && <div className="bg-red-900/40 border border-red-700 rounded-xl p-4 text-red-300 text-sm">{error}</div>}
-
-      {/* Loading skeleton */}
-      {loading && (
-        <div className="space-y-3 animate-pulse">
-          {[1, 2, 3, 4].map(i => (
-            <div key={i} className="flex gap-4 items-start">
-              <div className="w-6 h-6 rounded-full bg-gray-800 flex-shrink-0 mt-0.5" />
-              <div className="flex-1 space-y-2">
-                <div className="h-4 bg-gray-800 rounded w-1/3" />
-                <div className="h-3 bg-gray-800 rounded w-3/4" />
-                <div className="h-3 bg-gray-800 rounded w-2/3" />
-              </div>
-            </div>
-          ))}
+      {error && (
+        <div className="bg-red-950 border border-red-800 text-red-300 rounded-lg px-4 py-2 text-sm">
+          {error}
         </div>
       )}
 
-      {/* Results */}
-      {result && !loading && (
-        <div className="space-y-6">
-
-          {/* Summary */}
-          {result.summary && (
-            <p className="text-gray-400 text-sm pb-4 border-b border-gray-800">{result.summary}</p>
-          )}
-
-          {/* Architecture + Tech Stack */}
-          {(result.architecture || result.tech_stack?.length > 0) && (
-            <div className="bg-gray-800/60 border border-gray-700 rounded-xl p-4 space-y-3">
-              {result.architecture && (
-                <div>
-                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Architecture</p>
-                  <p className="text-gray-300 text-sm">{result.architecture}</p>
-                </div>
-              )}
-              {result.tech_stack?.length > 0 && (
-                <div>
-                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Tech Stack</p>
-                  <div className="flex flex-wrap gap-1.5">
-                    {result.tech_stack.map((t, i) => (
-                      <span key={i} className="px-2 py-0.5 rounded-md bg-gray-900 border border-gray-700 text-xs text-gray-300">{t}</span>
-                    ))}
-                  </div>
-                </div>
-              )}
-              {result.analyst_notes && (
-                <div>
-                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Notes analyste</p>
-                  <p className="text-gray-400 text-xs italic">{result.analyst_notes}</p>
-                </div>
-              )}
+      {result && (
+        <div className="space-y-4">
+          <div className="bg-gray-800 rounded-lg border border-gray-700 p-5 space-y-3">
+            <div className="flex items-center gap-2 text-xs">
+              <span
+                className={`px-2 py-0.5 rounded-full ${
+                  result.method === 'claude' ? 'bg-teal-900 text-teal-300' : 'bg-gray-700 text-gray-400'
+                }`}
+              >
+                {result.method === 'claude' ? 'Claude' : 'Fallback rule-based'}
+              </span>
+              <span className="text-gray-500">{result.runtime_ms} ms</span>
             </div>
-          )}
-
-          {/* Steps */}
-          <div className="space-y-1">
-            {(result.steps || []).map((step, si) => (
-              <div key={si} className={`${si > 0 ? 'pt-5' : 'pt-2'}`}>
-
-                {/* Step label */}
-                <div className="flex items-center gap-3 mb-3">
-                  <span className="w-6 h-6 rounded-full bg-indigo-900 border border-indigo-700 flex items-center justify-center text-indigo-300 text-xs font-bold flex-shrink-0">
-                    {step.step}
-                  </span>
-                  <span className="text-white font-semibold text-sm">{step.title}</span>
-                  {step.role && (
-                    <span className="px-1.5 py-0.5 rounded text-xs bg-gray-800 text-gray-500 border border-gray-700">{step.role}</span>
-                  )}
-                </div>
-
-                {/* Tools */}
-                <div className="ml-9 space-y-2">
-                  {(step.tools || []).map((tool, ti) => (
-                    <div key={ti} className="group rounded-lg border border-transparent hover:border-gray-700 hover:bg-gray-800/60 transition-all px-3 py-2">
-                      <div className="flex items-start gap-2">
-                        <span className={`mt-0.5 w-1.5 h-1.5 rounded-full flex-shrink-0 ${tool.type === 'user' ? 'bg-emerald-500' : 'bg-indigo-500'}`} />
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2 flex-wrap">
-                            {tool.skill?.id
-                              ? <button onClick={() => navigate(`/skill/${tool.skill.id}`)} className="text-indigo-400 hover:text-indigo-300 hover:underline text-sm font-medium text-left">{tool.name}</button>
-                              : <span className="text-gray-200 text-sm font-medium">{tool.name}</span>
-                            }
-                            <span className={`text-xs px-1.5 py-0.5 rounded ${tool.type === 'user' ? 'bg-emerald-900/40 text-emerald-400 border border-emerald-800' : 'bg-indigo-900/40 text-indigo-400 border border-indigo-800'}`}>
-                              {tool.type === 'user' ? 'runtime' : 'dev'}
-                            </span>
-                            {!tool.in_db && tool.in_db !== undefined && (
-                              <span className="text-xs text-gray-600 italic">externe</span>
-                            )}
-                          </div>
-                          <p className="text-gray-400 text-xs mt-0.5 leading-relaxed">{tool.description}</p>
-                          {tool.install_hint && (
-                            <code className="text-xs text-amber-400/80 bg-gray-900 px-2 py-0.5 rounded mt-1 inline-block font-mono">{tool.install_hint}</code>
-                          )}
-                          {tool.integration_notes && (
-                            <p className="text-gray-600 text-xs mt-1 italic">{tool.integration_notes}</p>
-                          )}
-                        </div>
-                        <button
-                          onClick={() => setDrawer({ goal: result.goal, step_title: step.title, tool_name: tool.name, tool_description: tool.description })}
-                          className="flex-shrink-0 text-xs text-gray-600 hover:text-indigo-400 opacity-0 group-hover:opacity-100 transition-all px-2 py-0.5 rounded hover:bg-gray-700 ml-1 mt-0.5">
-                          Expliquer →
-                        </button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-
-                {si < (result.steps.length - 1) && (
-                  <div className="ml-9 mt-5 border-b border-gray-800" />
-                )}
+            <p className="text-gray-200">{result.summary}</p>
+            {result.architecture && (
+              <div>
+                <h3 className="text-sm font-semibold text-gray-400 mb-1">Architecture</h3>
+                <p className="text-sm text-gray-300">{result.architecture}</p>
               </div>
-            ))}
-
-            {!result.steps?.length && (
-              <p className="text-gray-500 text-sm text-center py-8">Aucune étape générée. Essayez un objectif plus précis.</p>
+            )}
+            {result.tech_stack?.length > 0 && (
+              <div className="flex flex-wrap gap-1.5">
+                {result.tech_stack.map((t) => (
+                  <span key={t} className="bg-gray-700 text-gray-300 text-xs px-2 py-0.5 rounded-full">
+                    {t}
+                  </span>
+                ))}
+              </div>
+            )}
+            {result.analyst_notes && (
+              <p className="text-sm text-gray-400 italic border-l-2 border-gray-600 pl-3">
+                {result.analyst_notes}
+              </p>
             )}
           </div>
 
-          {/* Runtime tools */}
-          {result.runtime_tools?.length > 0 && (
-            <div className="bg-gray-800/40 border border-gray-700 rounded-xl p-4">
-              <p className="text-xs font-semibold text-emerald-500 uppercase tracking-wide mb-3">Outils runtime (production)</p>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                {result.runtime_tools.map((rt, i) => (
-                  <div key={i} className="flex items-start gap-2 px-3 py-2 rounded-lg bg-gray-900/60 border border-gray-800">
-                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 flex-shrink-0 mt-1.5" />
-                    <div className="min-w-0">
-                      <div className="flex items-center gap-1.5 flex-wrap">
-                        {rt.skill?.id
-                          ? <button onClick={() => navigate(`/skill/${rt.skill.id}`)} className="text-indigo-400 hover:text-indigo-300 hover:underline text-xs font-medium">{rt.name}</button>
-                          : <span className="text-gray-200 text-xs font-medium">{rt.name}</span>
-                        }
-                        {rt.category && rt.category !== 'other' && (
-                          <span className="text-xs text-gray-600 bg-gray-800 px-1.5 py-0.5 rounded border border-gray-700">{rt.category}</span>
-                        )}
-                      </div>
-                      {rt.purpose && <p className="text-gray-500 text-xs mt-0.5">{rt.purpose}</p>}
-                      {rt.install_hint && (
-                        <code className="text-xs text-amber-400/70 font-mono mt-0.5 block">{rt.install_hint}</code>
-                      )}
-                    </div>
-                  </div>
-                ))}
+          {result.steps?.map((step) => (
+            <div key={step.step} className="bg-gray-800 rounded-lg border border-gray-700 p-5">
+              <div className="flex items-center gap-3 mb-3">
+                <span className="bg-blue-600 text-white text-sm font-bold w-7 h-7 rounded-full flex items-center justify-center shrink-0">
+                  {step.step}
+                </span>
+                <h3 className="font-semibold text-gray-100 flex-1">{step.title}</h3>
+                <span className={`text-xs px-2 py-0.5 rounded-full ${ROLE_COLORS[step.role] || 'bg-gray-700 text-gray-300'}`}>
+                  {step.role}
+                </span>
               </div>
+              <ul className="space-y-2">
+                {(step.tools || []).map((tool, i) => (
+                  <li key={i} className="bg-gray-700/50 rounded px-3 py-2">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="font-medium text-gray-100 text-sm">{tool.name}</span>
+                      <span
+                        className={`text-xs px-1.5 py-0.5 rounded ${
+                          tool.type === 'user' ? 'bg-orange-900 text-orange-300' : 'bg-green-900 text-green-300'
+                        }`}
+                      >
+                        {tool.type === 'user' ? 'runtime' : 'dev'}
+                      </span>
+                      {tool.in_db && (
+                        <span className="text-xs px-1.5 py-0.5 rounded bg-blue-900 text-blue-300">en base</span>
+                      )}
+                      <button
+                        onClick={() => setExplain({ tool, stepTitle: step.title })}
+                        className="ml-auto text-xs text-teal-400 hover:text-teal-300"
+                      >
+                        Expliquer →
+                      </button>
+                    </div>
+                    <p className="text-sm text-gray-400 mt-1">{tool.description}</p>
+                    {tool.install_hint && (
+                      <code className="block text-xs text-teal-300 bg-gray-950 rounded px-2 py-1 mt-1.5 overflow-x-auto">
+                        {tool.install_hint}
+                      </code>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ))}
+
+          {result.runtime_tools?.length > 0 && (
+            <div className="bg-gray-800 rounded-lg border border-gray-700 p-5">
+              <h3 className="font-semibold text-gray-100 mb-3">Outils runtime (production)</h3>
+              <ul className="grid sm:grid-cols-2 gap-2">
+                {result.runtime_tools.map((t, i) => (
+                  <li key={i} className="bg-gray-700/50 rounded px-3 py-2 text-sm">
+                    <span className="font-medium text-gray-100">{t.name}</span>
+                    <span className="text-xs text-gray-500 ml-2">{t.category}</span>
+                    <p className="text-gray-400 text-xs mt-0.5">{t.purpose}</p>
+                  </li>
+                ))}
+              </ul>
             </div>
           )}
         </div>
       )}
 
-      {/* Explain drawer */}
-      {drawer && <ExplainDrawer context={drawer} onClose={() => setDrawer(null)} />}
+      {explain && (
+        <ExplainDrawer
+          goal={goal}
+          tool={explain.tool}
+          stepTitle={explain.stepTitle}
+          onClose={() => setExplain(null)}
+        />
+      )}
     </div>
   )
 }

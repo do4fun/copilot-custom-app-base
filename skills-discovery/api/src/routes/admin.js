@@ -1,132 +1,102 @@
 import { Hono } from 'hono'
 import { statSync } from 'fs'
-import { db } from '../db.js'
+import { db, DB_PATH } from '../db.js'
 
 const router = new Hono()
 
-// Excluded FTS5 shadow tables
-const FTS_RE = /(_fts|_data|_idx|_content|_docsize|_config)$/
-
-function humanSize(bytes) {
-  if (bytes < 1024)          return `${bytes} B`
-  if (bytes < 1024 * 1024)  return `${(bytes / 1024).toFixed(1)} KB`
-  return `${(bytes / (1024 * 1024)).toFixed(2)} MB`
-}
-
-function getDbPath() {
-  try { return db.prepare('PRAGMA database_list').all()[0]?.file || 'in-memory' }
-  catch { return 'unknown' }
-}
-
-function userTables() {
-  return db.prepare(`
-    SELECT name FROM sqlite_master
-    WHERE type='table' AND name NOT LIKE 'sqlite_%'
-    ORDER BY name
-  `).all().map(r => r.name).filter(n => !FTS_RE.test(n))
-}
-
-// ─── DB info ────────────────────────────────────────────────────────────────
+const ALLOWED_TABLES = [
+  'skills',
+  'tags',
+  'skill_tags',
+  'collections',
+  'collection_skills',
+  'favorites',
+  'user_notes',
+  'skill_combinations',
+  'scraper_configs',
+  'scraper_sessions',
+]
 
 router.get('/db-info', (c) => {
-  const path = getDbPath()
-  let size_bytes = 0, size_human = '—'
-  try { size_bytes = statSync(path).size; size_human = humanSize(size_bytes) } catch {}
+  let size = 0
+  try {
+    size = statSync(DB_PATH).size
+  } catch {
+    /* base pas encore créée */
+  }
+  const version = db.prepare('SELECT sqlite_version() AS v').get().v
 
-  const { v: sqlite_version } = db.prepare('SELECT sqlite_version() as v').get()
+  const counts = {}
+  for (const table of ALLOWED_TABLES) {
+    counts[table] = db.prepare(`SELECT COUNT(*) AS n FROM ${table}`).get().n
+  }
 
-  const tables = userTables().map(name => {
-    const { n } = db.prepare(`SELECT COUNT(*) as n FROM "${name}"`).get()
-    return { name, count: n }
-  })
-
-  return c.json({ path, size_bytes, size_human, sqlite_version, tables })
+  return c.json({ path: DB_PATH, size_bytes: size, sqlite_version: version, tables: counts })
 })
-
-// ─── Table data ──────────────────────────────────────────────────────────────
 
 router.get('/tables/:table', (c) => {
-  const table = c.req.param('table').replace(/[^a-zA-Z0-9_]/g, '')
-  if (!userTables().includes(table)) return c.json({ error: 'Table inconnue' }, 404)
+  const table = c.req.param('table')
+  // ne pas exposer les shadow tables FTS5 (skills_fts_*)
+  if (!ALLOWED_TABLES.includes(table)) return c.json({ error: 'Table non autorisée' }, 400)
 
-  const page   = Math.max(1, Number(c.req.query('page') || 1))
-  const size   = Math.min(200, Math.max(1, Number(c.req.query('size') || 50)))
+  const page = Math.max(1, Number(c.req.query('page')) || 1)
+  const size = Math.min(200, Math.max(1, Number(c.req.query('size')) || 50))
   const search = (c.req.query('search') || '').trim()
-  const offset = (page - 1) * size
 
-  const colInfo  = db.prepare(`PRAGMA table_info("${table}")`).all()
-  const colNames = colInfo.map(col => col.name)
-  const textCols = colInfo.filter(col => /TEXT|CHAR|CLOB/i.test(col.type || '')).map(col => col.name)
+  const columns = db.prepare(`PRAGMA table_info(${table})`).all().map((r) => r.name)
 
-  let where  = ''
-  let params = []
-  if (search && textCols.length > 0) {
-    where  = 'WHERE ' + textCols.map(col => `"${col}" LIKE ?`).join(' OR ')
-    params = textCols.map(() => `%${search}%`)
+  let where = ''
+  const params = []
+  if (search) {
+    const textCols = columns.filter((col) => !['id'].includes(col))
+    where = `WHERE ${textCols.map((col) => `CAST(${col} AS TEXT) LIKE ?`).join(' OR ')}`
+    params.push(...textCols.map(() => `%${search}%`))
   }
 
-  const { n: total } = db.prepare(`SELECT COUNT(*) as n FROM "${table}" ${where}`).get(...params)
-  const rows = db.prepare(`SELECT * FROM "${table}" ${where} ORDER BY rowid DESC LIMIT ? OFFSET ?`).all(...params, size, offset)
+  const total = db.prepare(`SELECT COUNT(*) AS n FROM ${table} ${where}`).get(...params).n
+  const rows = db
+    .prepare(`SELECT * FROM ${table} ${where} LIMIT ? OFFSET ?`)
+    .all(...params, size, (page - 1) * size)
 
-  return c.json({ columns: colNames, rows, total, page, page_size: size, pages: Math.ceil(total / size) })
+  return c.json({ table, columns, rows, total, page, size })
 })
-
-// ─── Purge sessions + scraped skills ─────────────────────────────────────────
 
 router.post('/purge-sessions', (c) => {
-  const { changes: skills_deleted } = db.prepare(
-    "DELETE FROM skills WHERE source_name IS NOT NULL"
-  ).run()
-  const { changes: sessions_deleted } = db.prepare(
-    "DELETE FROM scraper_sessions"
-  ).run()
-  db.exec("INSERT INTO skills_fts(skills_fts) VALUES('rebuild')")
-  return c.json({ skills_deleted, sessions_deleted })
+  const skillsDeleted = db
+    .prepare("DELETE FROM skills WHERE source_name IS NOT NULL AND source_name NOT IN ('Web', 'Seed')")
+    .run().changes
+  const sessionsDeleted = db.prepare('DELETE FROM scraper_sessions').run().changes
+  return c.json({ skills_deleted: skillsDeleted, sessions_deleted: sessionsDeleted })
 })
 
-// ─── Process status ───────────────────────────────────────────────────────────
-
 router.get('/status', (c) => {
+  const mem = process.memoryUsage()
   return c.json({
-    api:        'running',
-    pid:        process.pid,
-    uptime_s:   Math.floor(process.uptime()),
-    memory_mb:  Math.round(process.memoryUsage().rss / 1024 / 1024),
-    managed:    !!process.send,   // true only when launched by manager.js
+    pid: process.pid,
+    uptime_s: Math.round(process.uptime()),
+    memory: { rss: mem.rss, heap_used: mem.heapUsed, heap_total: mem.heapTotal },
+    managed: !!process.send,
   })
 })
 
-// ─── Restart ──────────────────────────────────────────────────────────────────
-// target: 'api' | 'frontend' | 'all'
-// When running under manager.js, sends an IPC message.
-// When running standalone, only 'api' works (exits with restart code 75).
-
-const RESTART_CODE = 75
-
 router.post('/restart', async (c) => {
-  if (process.env.VERCEL)
-    return c.json({ ok: false, error: 'Restart not available in serverless (Vercel)' }, 501)
-
-  const body   = await c.req.json().catch(() => ({}))
-  const target = (body.target || 'api').toLowerCase()
-
-  if (!['api', 'frontend', 'all'].includes(target))
-    return c.json({ error: 'target invalide (api | frontend | all)' }, 422)
-
-  if (process.send) {
-    // Running under manager.js — delegate restart to parent
-    process.send({ action: 'restart', target })
-    return c.json({ ok: true, target, managed: true })
+  const { target } = await c.req.json()
+  if (!['api', 'frontend', 'all'].includes(target)) {
+    return c.json({ error: 'target doit être api, frontend ou all' }, 400)
   }
 
-  // Standalone mode: can only restart the API itself
-  if (target === 'frontend')
-    return c.json({ ok: false, error: 'Redémarrage du frontend impossible sans le manager', managed: false }, 503)
+  if (process.send) {
+    process.send({ action: 'restart', target })
+    return c.json({ restarting: target, managed: true })
+  }
 
-  // Schedule exit after response is sent (code 75 = restart signal for manager / shell wrappers)
-  c.executionCtx?.waitUntil?.(new Promise(resolve => setTimeout(resolve, 200)))
-  setTimeout(() => process.exit(RESTART_CODE), 200)
-  return c.json({ ok: true, target, managed: false, warning: 'standalone — redémarre manuellement si nécessaire' })
+  if (target === 'frontend') {
+    return c.json({ error: 'Restart frontend indisponible hors process manager' }, 400)
+  }
+
+  // hors manager : exit(75) → restart auto par le superviseur (node --watch, pm2...)
+  setTimeout(() => process.exit(75), 200)
+  return c.json({ restarting: target, managed: false })
 })
 
 export default router

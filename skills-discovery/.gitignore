@@ -1,28 +1,10 @@
-# Database
-*.db
-*.sqlite
-*.db-shm
-*.db-wal
-
-# Environment
-.env
-.env.local
-
-# Node
 node_modules/
-frontend/dist/
-api/storage/
-
-# Python (legacy, keep for branch compatibility)
-__pycache__/
-*.py[cod]
-.venv*/
-venv*/
-
-# OS
-.DS_Store
-Thumbs.db
-
-# IDE
-.idea/
-*.swp
+dist/
+.env
+skills.db
+skills_vectors.db
+*.db-journal
+*.db-wal
+*.db-shm
+storage/
+.crawlee/

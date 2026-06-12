@@ -1,341 +1,141 @@
-const BASE_HEADERS = {
-  Accept: 'application/vnd.github.v3+json',
-  'User-Agent': 'skillshub-crawler/2.0',
-}
+import { ghFetch, parseRepoUrl } from './github.js'
 
-function githubHeaders() {
-  const token = process.env.GITHUB_TOKEN
-  return token ? { ...BASE_HEADERS, Authorization: `Bearer ${token}` } : BASE_HEADERS
-}
+const GITHUB_API = 'https://api.github.com'
+const BATCH_SIZE = 15
 
-// ─── Minimal YAML frontmatter parser ─────────────────────────────────────────
-
-function parseYaml(yaml) {
-  const result = {}
-  const lines = yaml.split('\n')
-  let key = null
-  let collecting = false
-  let buf = []
-
-  for (const line of lines) {
-    if (collecting) {
-      if (/^\s+[-*]\s+/.test(line)) {
-        buf.push(line.replace(/^\s+[-*]\s+/, '').trim().replace(/^["']|["']$/g, ''))
-        continue
-      }
-      result[key] = buf
-      collecting = false
-      buf = []
-      key = null
-    }
-
-    const m = line.match(/^([a-zA-Z][\w-]*):\s*(.*)$/)
-    if (!m) continue
-    key = m[1]
-    const val = m[2].trim()
-
-    if (val === '') {
-      collecting = true
-      buf = []
-    } else if (val.startsWith('[')) {
-      result[key] = val.replace(/^\[|\]$/g, '').split(',')
-        .map(s => s.trim().replace(/^["']|["']$/g, '')).filter(Boolean)
-      key = null
-    } else {
-      result[key] = val.replace(/^["']|["']$/g, '')
-      key = null
-    }
-  }
-
-  if (collecting && key) result[key] = buf
-  return result
-}
-
-// ─── Skill validation & parsing ───────────────────────────────────────────────
-//
-// Reference: https://github.com/anthropics/skills
-//
-// A Claude Code skill is a SKILL.md / skill.md with YAML frontmatter containing:
-//   name        — identifier (kebab-case)
-//   description — PRIMARY trigger mechanism: what the skill does + when to use it
-// The markdown body contains instructions for Claude on how to execute the skill.
-//
-// A file is only a valid skill if BOTH name AND description are in the frontmatter
-// AND the body has substantive instructions. Files that are regular READMEs or
-// docs that happen to be named skill.md are rejected here.
-
-const MIN_DESC_LEN = 15
-const MIN_BODY_LEN = 30
-
-// Returns { skill, reason } where skill is null on rejection.
-// reason always describes the outcome (accepted or why rejected).
+/**
+ * Parse un fichier SKILL.md / agents.md avec frontmatter YAML.
+ * Retourne {skill, reason} — skill = null si rejeté.
+ */
 export function parseSkillMarkdown(content) {
-  // ── 1. Frontmatter presence ───────────────────────────────────────────────
-  const fmMatch = content.match(/^---[\r\n]([\s\S]*?)[\r\n]---[\r\n]?/)
-  if (!fmMatch)
-    return { skill: null, reason: 'Pas de frontmatter YAML (--- manquant)' }
+  const text = String(content || '').replace(/^﻿/, '').trim()
+  if (!text.startsWith('---')) return { skill: null, reason: 'pas de frontmatter YAML' }
 
-  const body = content.slice(fmMatch[0].length).trimStart()
+  const end = text.indexOf('\n---', 3)
+  if (end === -1) return { skill: null, reason: 'frontmatter non fermé' }
 
-  // ── 2. YAML parsing ───────────────────────────────────────────────────────
-  let fm = {}
-  try { fm = parseYaml(fmMatch[1]) }
-  catch (e) { return { skill: null, reason: `Frontmatter invalide: ${e.message}` } }
+  const frontmatter = text.slice(3, end)
+  const body = text.slice(end + 4).trim()
 
-  // ── 3. name ───────────────────────────────────────────────────────────────
-  const name = fm.name ? String(fm.name).trim() : ''
-  if (name.length < 2)
-    return { skill: null, reason: 'name absent ou trop court dans le frontmatter' }
-
-  // ── 4. description ────────────────────────────────────────────────────────
-  const description = fm.description ? String(fm.description).trim() : ''
-  if (!description)
-    return { skill: null, reason: `description absente du frontmatter (champ obligatoire — mécanisme de déclenchement)` }
-  if (description.length < MIN_DESC_LEN)
-    return { skill: null, reason: `description trop courte: ${description.length} chars (minimum ${MIN_DESC_LEN})` }
-
-  // ── 5. Body (instructions) ────────────────────────────────────────────────
-  const bodyLen = body.trim().length
-  if (bodyLen < MIN_BODY_LEN)
-    return { skill: null, reason: `body trop court: ${bodyLen} chars (minimum ${MIN_BODY_LEN} — doit contenir les instructions)` }
-
-  // ── 6. Extract optional fields ────────────────────────────────────────────
-  const version = fm.version ? String(fm.version).trim() : ''
-
-  // Tags: from frontmatter or derived from name parts (Anthropic format has none)
-  let tags = []
-  if (Array.isArray(fm.tags)) {
-    tags = fm.tags.map(String).filter(Boolean)
-  } else if (typeof fm.tags === 'string' && fm.tags.trim()) {
-    tags = fm.tags.split(',').map(s => s.trim()).filter(Boolean)
-  }
-  if (!tags.length)
-    tags = name.split(/[-_\s]+/).filter(t => t.length > 2)
-  if (!tags.includes('claude-code')) tags.unshift('claude-code')
-
-  // Features: community format (agents/allowed-tools) or Anthropic format (compatibility)
-  const features = []
-  if (Array.isArray(fm.agents))           features.push(...fm.agents.map(a => `Agent: ${a}`))
-  if (Array.isArray(fm['allowed-tools'])) features.push(...fm['allowed-tools'].map(t => `Tool: ${t}`))
-  if (fm.compatibility && typeof fm.compatibility === 'string')
-    features.push(`Requires: ${fm.compatibility}`)
-
-  const skill = {
-    name:        name.slice(0, 100),
-    description: description.slice(0, 800),
-    tags,
-    version,
-    features,
+  // parse YAML simple key: value (suffisant pour les frontmatters de skills)
+  const meta = {}
+  let currentKey = null
+  for (const line of frontmatter.split('\n')) {
+    const kv = line.match(/^([\w-]+)\s*:\s*(.*)$/)
+    if (kv) {
+      currentKey = kv[1].toLowerCase()
+      meta[currentKey] = kv[2].trim().replace(/^["']|["']$/g, '')
+    } else if (currentKey && /^\s+\S/.test(line)) {
+      // continuation multi-ligne (folded/literal simplifié)
+      meta[currentKey] = `${meta[currentKey]} ${line.trim()}`.trim()
+    }
   }
 
-  const summary = [
-    `name: "${skill.name}"`,
-    `description: ${description.length} chars`,
-    `body: ${bodyLen} chars`,
-    tags.length ? `tags: [${tags.slice(0, 4).join(', ')}]` : null,
-    version ? `version: ${version}` : null,
-    features.length ? `features: ${features.length}` : null,
-  ].filter(Boolean).join(' | ')
+  if (!meta.name) return { skill: null, reason: 'champ name absent' }
+  const description = meta.description || ''
+  if (description.length < 15) return { skill: null, reason: 'description trop courte (< 15 chars)' }
+  if (body.length < 30) return { skill: null, reason: 'body trop court (< 30 chars)' }
 
-  return { skill, reason: `✓ ${summary}` }
+  const tags = (meta.tags || meta.keywords || '')
+    .replace(/^\[|\]$/g, '')
+    .split(',')
+    .map((t) => t.trim().replace(/^["']|["']$/g, ''))
+    .filter(Boolean)
+
+  return {
+    skill: {
+      name: meta.name,
+      description,
+      version: meta.version || null,
+      tags,
+      readme: text.slice(0, 8000),
+      install_instructions: meta.install || null,
+    },
+    reason: null,
+  }
 }
 
-// ─── GitHub skill repo crawler (Trees API) ───────────────────────────────────
-//
-// For repos that are skill catalogues (e.g. anthropics/skills).
-// Pattern: any blob matching /(SKILL|skill)\.md$/ in the repo tree.
-// Uses the Git Trees API — one call for the full tree, then parallel fetches.
-// More reliable than code search for known repos (no rate-limit on raw content).
+async function fetchRaw(owner, repo, path, ref = 'HEAD') {
+  const res = await fetch(`https://raw.githubusercontent.com/${owner}/${repo}/${ref}/${path}`, {
+    headers: { 'User-Agent': 'SkillsHub-Crawler' },
+  })
+  if (!res.ok) throw new Error(`raw ${res.status} sur ${owner}/${repo}/${path}`)
+  return res.text()
+}
 
-export async function crawlGithubSkillRepo(config, {
-  onSkill, onLog, onTotal, onFail = () => {}, onSkip = () => {}, checkStop,
-}) {
-  const m = config.url.match(/github\.com\/([^/]+\/[^/?#]+)/)
-  if (!m) {
-    onLog(`URL invalide — format attendu: https://github.com/{owner}/{repo}`, 'ERROR')
-    return
+async function processBatches(items, ctx, worker) {
+  for (let i = 0; i < items.length; i += BATCH_SIZE) {
+    if (ctx.checkStop()) return
+    await ctx.waitWhilePaused()
+    if (ctx.checkStop()) return
+    const batch = items.slice(i, i + BATCH_SIZE)
+    await Promise.all(batch.map((item) => worker(item).catch((err) => ctx.onFail(String(err.message)))))
   }
-  const repo = m[1].replace(/\.git$/, '')
-  const headers = githubHeaders()
+}
 
-  onLog(`Analyse du repo: ${repo}`, 'INFO')
+/** Crawl d'un repo entier via Trees API, à la recherche de fichiers {filename}. */
+async function crawlRepoTree(config, ctx, filename) {
+  const parsed = parseRepoUrl(config.url)
+  if (!parsed) throw new Error(`URL de repo GitHub invalide : ${config.url}`)
+  const { owner, repo } = parsed
 
-  // Full recursive tree — one API call
-  const treeUrl = `https://api.github.com/repos/${repo}/git/trees/HEAD?recursive=1`
-  onLog(`> ${treeUrl}`, 'DEBUG')
+  ctx.onLog(`Trees API sur ${owner}/${repo} (recherche de ${filename})`)
+  const res = await ghFetch(`${GITHUB_API}/repos/${owner}/${repo}/git/trees/HEAD?recursive=1`)
+  const tree = await res.json()
 
-  let tree = []
-  try {
-    const res = await fetch(treeUrl, { headers, signal: AbortSignal.timeout(20000) })
-    if (!res.ok) {
-      const hint = res.status === 401 ? ' — ajoutez GITHUB_TOKEN dans .env'
-                 : res.status === 403 ? ' — rate-limit GitHub'
-                 : ''
-      onLog(`GitHub API ${res.status}${hint}`, 'ERROR')
-      return
-    }
-    const data = await res.json()
-    tree = data.tree || []
-    if (data.truncated) onLog(`Arbre tronqué (repo > 100 000 fichiers) — résultats partiels`, 'WARN')
-  } catch (e) {
-    onLog(`Erreur trees API: ${e.message}`, 'ERROR')
-    return
-  }
-
-  // Keep only SKILL.md / skill.md blobs
-  const skillFiles = tree.filter(f =>
-    f.type === 'blob' && /(?:^|\/)(SKILL|skill)\.md$/.test(f.path)
+  const lower = filename.toLowerCase()
+  const files = (tree.tree || []).filter(
+    (f) => f.type === 'blob' && f.path.toLowerCase().endsWith(lower)
   )
 
-  onLog(`${skillFiles.length} fichier(s) SKILL.md trouvé(s) dans ${repo}`, 'INFO')
-  onTotal(skillFiles.length)
+  ctx.onLog(`${files.length} fichier(s) ${filename} trouvé(s)`)
+  ctx.onTotal(files.length)
 
-  const BATCH = 8
-  for (let i = 0; i < skillFiles.length; i += BATCH) {
-    if (checkStop()) break
-
-    await Promise.allSettled(skillFiles.slice(i, i + BATCH).map(async (file) => {
-      if (checkStop()) return
-
-      const rawUrl = `https://raw.githubusercontent.com/${repo}/HEAD/${file.path}`
-      onLog(`> ${rawUrl}`, 'TRACE')
-
-      try {
-        const r = await fetch(rawUrl, {
-          headers: { 'User-Agent': 'skillshub-crawler/2.0' },
-          signal: AbortSignal.timeout(8000),
-        })
-        if (!r.ok) { onFail(`${file.path} — HTTP ${r.status}`); return }
-
-        const content = await r.text()
-        if (!content.trim()) {
-          onLog(`  [${file.path}] → fichier vide`, 'TRACE')
-          onSkip()
-          return
-        }
-
-        const { skill, reason } = parseSkillMarkdown(content)
-        onLog(`  [${file.path}] → ${reason}`, 'TRACE')
-
-        if (!skill) { onSkip(); return }
-
-        onSkill({
-          name:         skill.name,
-          description:  skill.description,
-          source_url:   `https://github.com/${repo}/blob/main/${file.path}`,
-          source_name:  `GitHub / ${repo}`,
-          category:     config.category || 'Claude Code Skill',
-          pricing:      'free',
-          version:      skill.version,
-          tags:         skill.tags,
-          features:     skill.features,
-          readme:       content,
-        })
-      } catch (e) {
-        onFail(`${file.path} — ${e.message}`)
-      }
-    }))
-  }
-}
-
-// ─── GitHub code search crawler ───────────────────────────────────────────────
-
-export async function crawlGithubSkillFiles(config, {
-  onSkill, onLog, onTotal, onFail = () => {}, onSkip = () => {}, checkStop,
-}) {
-  const query = config.url.trim()
-  const headers = githubHeaders()
-
-  onLog(`Recherche GitHub code: ${query}`, 'INFO')
-
-  // If the query already has filename: use it as-is; otherwise search both casings
-  const queries = /filename:/i.test(query)
-    ? [query]
-    : [`filename:skill.md ${query}`, `filename:SKILL.md ${query}`]
-
-  const seen  = new Set()
-  const items = []
-
-  for (const q of queries) {
-    if (checkStop()) break
-    const searchUrl = `https://api.github.com/search/code?q=${encodeURIComponent(q)}&per_page=100`
-    onLog(`> ${searchUrl}`, 'DEBUG')
-    try {
-      const res = await fetch(searchUrl, {
-        headers,
-        signal: AbortSignal.timeout(15000),
-      })
-      if (!res.ok) {
-        const hint = res.status === 401 ? ' — ajoutez GITHUB_TOKEN dans .env'
-                   : res.status === 403 ? ' — rate-limit GitHub: attendez ou ajoutez GITHUB_TOKEN'
-                   : ''
-        onLog(`GitHub API ${res.status}${hint} pour: ${q}`, 'ERROR')
-        continue
-      }
-      const data = await res.json()
-      for (const item of (data.items || [])) {
-        if (!seen.has(item.html_url)) {
-          seen.add(item.html_url)
-          items.push(item)
-        }
-      }
-      onLog(`${data.items?.length ?? 0} résultat(s) pour: ${q}`, 'DEBUG')
-    } catch (e) {
-      onLog(`Erreur search: ${e.message}`, 'ERROR')
+  await processBatches(files, ctx, async (file) => {
+    const content = await fetchRaw(owner, repo, file.path)
+    const { skill, reason } = parseSkillMarkdown(content)
+    if (!skill) {
+      ctx.onLog(`Rejeté ${file.path} : ${reason}`, 'DEBUG')
+      ctx.onSkip()
+      return
     }
-  }
-
-  onTotal(items.length)
-  onLog(`${items.length} fichier(s) à vérifier (validation frontmatter name+description requise)`, 'INFO')
-
-  const BATCH = 8
-  for (let i = 0; i < items.length; i += BATCH) {
-    if (checkStop()) break
-
-    await Promise.allSettled(items.slice(i, i + BATCH).map(async (item) => {
-      if (checkStop()) return
-
-      const rawUrl = item.download_url ||
-        `https://raw.githubusercontent.com/${item.repository.full_name}/HEAD/${item.path}`
-      onLog(`> ${rawUrl}`, 'TRACE')
-
-      try {
-        const r = await fetch(rawUrl, {
-          headers: { 'User-Agent': 'skillshub-crawler/2.0' },
-          signal: AbortSignal.timeout(8000),
-        })
-        if (!r.ok) { onFail(`${item.path} — HTTP ${r.status}`); return }
-
-        const content = await r.text()
-        if (!content.trim()) {
-          onLog(`  [${item.repository.full_name}/${item.path}] → fichier vide`, 'TRACE')
-          onSkip()
-          return
-        }
-
-        const { skill, reason } = parseSkillMarkdown(content)
-        onLog(`  [${item.repository.full_name}/${item.path}] → ${reason}`, 'TRACE')
-
-        if (!skill) {
-          onSkip()
-          return
-        }
-
-        onSkill({
-          name:         skill.name,
-          description:  skill.description,
-          source_url:   item.html_url,
-          source_name:  `GitHub / ${item.repository.full_name}`,
-          category:     config.category || 'Claude Code Skill',
-          pricing:      'free',
-          version:      skill.version,
-          tags:         skill.tags,
-          features:     skill.features,
-          readme:       content,
-        })
-      } catch (e) {
-        onFail(`${item.path} — ${e.message}`)
-      }
-    }))
-  }
+    await ctx.onSkill({
+      ...skill,
+      source_url: `https://github.com/${owner}/${repo}/blob/HEAD/${file.path}`,
+    })
+  })
 }
+
+/** Crawl via GitHub Code Search (filename:{filename} + query). Token requis. */
+async function crawlCodeSearch(config, ctx, filename) {
+  if (!process.env.GITHUB_TOKEN) {
+    ctx.onLog('GITHUB_TOKEN absent — le Code Search GitHub requiert une authentification', 'WARN')
+  }
+  const query = encodeURIComponent(`filename:${filename} ${config.url}`.trim())
+  ctx.onLog(`Code Search : filename:${filename} ${config.url}`)
+
+  const res = await ghFetch(`${GITHUB_API}/search/code?q=${query}&per_page=50`)
+  const data = await res.json()
+  const items = data.items || []
+
+  ctx.onLog(`${items.length} fichier(s) trouvé(s) (total: ${data.total_count})`)
+  ctx.onTotal(items.length)
+
+  await processBatches(items, ctx, async (item) => {
+    const owner = item.repository.owner.login
+    const repo = item.repository.name
+    const content = await fetchRaw(owner, repo, item.path)
+    const { skill, reason } = parseSkillMarkdown(content)
+    if (!skill) {
+      ctx.onLog(`Rejeté ${item.html_url} : ${reason}`, 'DEBUG')
+      ctx.onSkip()
+      return
+    }
+    await ctx.onSkill({ ...skill, source_url: item.html_url })
+  })
+}
+
+export const crawlGithubSkillRepo = (config, ctx) => crawlRepoTree(config, ctx, 'skill.md')
+export const crawlGithubSkillFiles = (config, ctx) => crawlCodeSearch(config, ctx, 'skill.md')
+export const crawlGithubAgentRepo = (config, ctx) => crawlRepoTree(config, ctx, 'agents.md')
+export const crawlGithubAgentFiles = (config, ctx) => crawlCodeSearch(config, ctx, 'agents.md')

@@ -3,100 +3,172 @@ import { db } from '../db.js'
 
 const router = new Hono()
 
-function withTags(skill) {
-  const tags = db.prepare(`
-    SELECT t.id, t.name FROM tags t
-    JOIN skill_tags st ON st.tag_id=t.id WHERE st.skill_id=?
-  `).all(skill.id)
-  const isFav = !!db.prepare('SELECT 1 FROM favorites WHERE skill_id=?').get(skill.id)
-  const notes = db.prepare('SELECT * FROM user_notes WHERE skill_id=? ORDER BY created_at DESC').all(skill.id)
-  return { ...skill, tags, is_favorite: isFav, notes }
+function getSkillTags(skillId) {
+  return db
+    .prepare(
+      'SELECT t.name FROM tags t JOIN skill_tags st ON st.tag_id = t.id WHERE st.skill_id = ? ORDER BY t.name'
+    )
+    .all(skillId)
+    .map((r) => r.name)
 }
 
+// Liste paginée
 router.get('/', (c) => {
-  const page = Number(c.req.query('page') || 1)
-  const size = Math.min(Number(c.req.query('page_size') || 20), 100)
-  const offset = (page - 1) * size
-  const total = db.prepare('SELECT COUNT(*) as n FROM skills WHERE is_active=1').get().n
-  const skills = db.prepare('SELECT * FROM skills WHERE is_active=1 ORDER BY popularity_score DESC LIMIT ? OFFSET ?').all(size, offset)
-  return c.json({ skills: skills.map(withTags), total, page, page_size: size })
+  const page = Math.max(1, Number(c.req.query('page')) || 1)
+  const pageSize = Math.min(100, Math.max(1, Number(c.req.query('page_size')) || 20))
+  const total = db.prepare('SELECT COUNT(*) AS n FROM skills').get().n
+  const results = db
+    .prepare('SELECT * FROM skills ORDER BY popularity_score DESC, name LIMIT ? OFFSET ?')
+    .all(pageSize, (page - 1) * pageSize)
+  for (const s of results) s.tags = getSkillTags(s.id)
+  return c.json({ results, total, page, page_size: pageSize })
 })
 
+// Détail avec tags, notes, is_favorite
 router.get('/:id', (c) => {
-  const skill = db.prepare('SELECT * FROM skills WHERE id=?').get(Number(c.req.param('id')))
+  const id = Number(c.req.param('id'))
+  const skill = db.prepare('SELECT * FROM skills WHERE id = ?').get(id)
   if (!skill) return c.json({ error: 'Skill introuvable' }, 404)
-  return c.json(withTags(skill))
+  skill.tags = getSkillTags(id)
+  skill.notes = db
+    .prepare('SELECT * FROM user_notes WHERE skill_id = ? ORDER BY created_at DESC')
+    .all(id)
+  skill.is_favorite = db.prepare('SELECT 1 FROM favorites WHERE skill_id = ?').get(id) ? 1 : 0
+  return c.json(skill)
 })
 
+// Créer
 router.post('/', async (c) => {
-  const b = await c.req.json()
-  const { lastInsertRowid } = db.prepare(`
-    INSERT INTO skills (name, description, category, source_url, pricing, features, popularity_score, created_at, updated_at)
-    VALUES (?,?,?,?,?,?,?,datetime('now'),datetime('now'))
-  `).run(b.name, b.description||'', b.category||'', b.source_url||'', b.pricing||'free', JSON.stringify(b.features||[]), b.popularity_score||0)
-  return c.json(withTags(db.prepare('SELECT * FROM skills WHERE id=?').get(lastInsertRowid)), 201)
+  const body = await c.req.json()
+  if (!body.name) return c.json({ error: 'name requis' }, 400)
+  const exists = db.prepare('SELECT id FROM skills WHERE lower(name) = lower(?)').get(body.name)
+  if (exists) return c.json({ error: 'Un skill avec ce nom existe déjà' }, 409)
+
+  const features = Array.isArray(body.features) ? JSON.stringify(body.features) : body.features || null
+  const info = db
+    .prepare(
+      `INSERT INTO skills
+       (name, description, category, source_url, source_name, pricing, features,
+        install_instructions, version, popularity_score, readme)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    )
+    .run(
+      body.name,
+      body.description || null,
+      body.category || null,
+      body.source_url || null,
+      body.source_name || null,
+      body.pricing || 'free',
+      features,
+      body.install_instructions || null,
+      body.version || null,
+      body.popularity_score || 0,
+      body.readme || null
+    )
+  const skill = db.prepare('SELECT * FROM skills WHERE id = ?').get(info.lastInsertRowid)
+  return c.json(skill, 201)
 })
 
+// Modifier
 router.put('/:id', async (c) => {
   const id = Number(c.req.param('id'))
-  if (!db.prepare('SELECT id FROM skills WHERE id=?').get(id)) return c.json({ error: 'Not found' }, 404)
-  const b = await c.req.json()
-  db.prepare(`UPDATE skills SET name=?, description=?, category=?, source_url=?, pricing=?, updated_at=datetime('now') WHERE id=?`)
-    .run(b.name, b.description, b.category, b.source_url, b.pricing, id)
-  return c.json(withTags(db.prepare('SELECT * FROM skills WHERE id=?').get(id)))
+  const skill = db.prepare('SELECT * FROM skills WHERE id = ?').get(id)
+  if (!skill) return c.json({ error: 'Skill introuvable' }, 404)
+  const body = await c.req.json()
+  const features = Array.isArray(body.features) ? JSON.stringify(body.features) : body.features
+
+  db.prepare(
+    `UPDATE skills SET
+       name = ?, description = ?, category = ?, source_url = ?, source_name = ?,
+       pricing = ?, features = ?, install_instructions = ?, version = ?,
+       popularity_score = ?, readme = ?, updated_at = datetime('now')
+     WHERE id = ?`
+  ).run(
+    body.name ?? skill.name,
+    body.description ?? skill.description,
+    body.category ?? skill.category,
+    body.source_url ?? skill.source_url,
+    body.source_name ?? skill.source_name,
+    body.pricing ?? skill.pricing,
+    features ?? skill.features,
+    body.install_instructions ?? skill.install_instructions,
+    body.version ?? skill.version,
+    body.popularity_score ?? skill.popularity_score,
+    body.readme ?? skill.readme,
+    id
+  )
+  return c.json(db.prepare('SELECT * FROM skills WHERE id = ?').get(id))
 })
 
+// Supprimer
 router.delete('/:id', (c) => {
-  db.prepare('DELETE FROM skills WHERE id=?').run(Number(c.req.param('id')))
+  const id = Number(c.req.param('id'))
+  const info = db.prepare('DELETE FROM skills WHERE id = ?').run(id)
+  if (!info.changes) return c.json({ error: 'Skill introuvable' }, 404)
   return c.body(null, 204)
 })
 
+// Toggle visibilité globale
 router.patch('/:id/active', async (c) => {
   const id = Number(c.req.param('id'))
-  if (!db.prepare('SELECT id FROM skills WHERE id=?').get(id))
-    return c.json({ error: 'Not found' }, 404)
-  const { is_active } = await c.req.json()
-  db.prepare("UPDATE skills SET is_active=?, updated_at=datetime('now') WHERE id=?")
-    .run(is_active ? 1 : 0, id)
-  return c.json({ id, is_active: is_active ? 1 : 0 })
+  const body = await c.req.json()
+  const isActive = body.is_active ? 1 : 0
+  const info = db
+    .prepare("UPDATE skills SET is_active = ?, updated_at = datetime('now') WHERE id = ?")
+    .run(isActive, id)
+  if (!info.changes) return c.json({ error: 'Skill introuvable' }, 404)
+  return c.json({ id, is_active: isActive })
 })
 
+// Toggle favori
 router.post('/:id/favorite', (c) => {
   const id = Number(c.req.param('id'))
-  const existing = db.prepare('SELECT 1 FROM favorites WHERE skill_id=?').get(id)
-  if (existing) {
-    db.prepare('DELETE FROM favorites WHERE skill_id=?').run(id)
-    return c.json({ favorited: false })
+  const skill = db.prepare('SELECT id FROM skills WHERE id = ?').get(id)
+  if (!skill) return c.json({ error: 'Skill introuvable' }, 404)
+
+  const fav = db.prepare('SELECT 1 FROM favorites WHERE skill_id = ?').get(id)
+  if (fav) {
+    db.prepare('DELETE FROM favorites WHERE skill_id = ?').run(id)
+    db.prepare('UPDATE skills SET is_favorite = 0 WHERE id = ?').run(id)
+    return c.json({ id, is_favorite: 0 })
   }
-  db.prepare('INSERT OR IGNORE INTO favorites (skill_id) VALUES (?)').run(id)
-  return c.json({ favorited: true })
+  db.prepare('INSERT INTO favorites (skill_id) VALUES (?)').run(id)
+  db.prepare('UPDATE skills SET is_favorite = 1 WHERE id = ?').run(id)
+  return c.json({ id, is_favorite: 1 })
 })
 
+// Notes
 router.post('/:id/notes', async (c) => {
   const id = Number(c.req.param('id'))
+  const skill = db.prepare('SELECT id FROM skills WHERE id = ?').get(id)
+  if (!skill) return c.json({ error: 'Skill introuvable' }, 404)
   const { content } = await c.req.json()
-  if (!content?.trim()) return c.json({ error: 'content requis' }, 422)
-  const { lastInsertRowid } = db.prepare(
-    "INSERT INTO user_notes (skill_id, content, created_at) VALUES (?,?,datetime('now'))"
-  ).run(id, content.trim())
-  return c.json(db.prepare('SELECT * FROM user_notes WHERE id=?').get(lastInsertRowid), 201)
+  if (!content?.trim()) return c.json({ error: 'content requis' }, 400)
+  const info = db.prepare('INSERT INTO user_notes (skill_id, content) VALUES (?, ?)').run(id, content.trim())
+  return c.json(db.prepare('SELECT * FROM user_notes WHERE id = ?').get(info.lastInsertRowid), 201)
 })
 
 router.delete('/:id/notes/:noteId', (c) => {
-  db.prepare('DELETE FROM user_notes WHERE id=? AND skill_id=?')
+  const info = db
+    .prepare('DELETE FROM user_notes WHERE id = ? AND skill_id = ?')
     .run(Number(c.req.param('noteId')), Number(c.req.param('id')))
+  if (!info.changes) return c.json({ error: 'Note introuvable' }, 404)
   return c.body(null, 204)
 })
 
+// Combinaisons compatibles
 router.get('/:id/combinations', (c) => {
-  const rows = db.prepare(`
-    SELECT sc.*, s1.name as skill1_name, s2.name as skill2_name
-    FROM skill_combinations sc
-    JOIN skills s1 ON s1.id=sc.skill_id_1
-    JOIN skills s2 ON s2.id=sc.skill_id_2
-    WHERE sc.skill_id_1=? OR sc.skill_id_2=?
-  `).all(Number(c.req.param('id')), Number(c.req.param('id')))
-  return c.json(rows)
+  const id = Number(c.req.param('id'))
+  const combos = db
+    .prepare(
+      `SELECT sc.*, s1.name AS skill_1_name, s2.name AS skill_2_name
+       FROM skill_combinations sc
+       LEFT JOIN skills s1 ON s1.id = sc.skill_id_1
+       LEFT JOIN skills s2 ON s2.id = sc.skill_id_2
+       WHERE sc.skill_id_1 = ? OR sc.skill_id_2 = ?`
+    )
+    .all(id, id)
+  return c.json(combos)
 })
 
 export default router

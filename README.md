@@ -1,215 +1,47 @@
 # SkillsHub — AI Skills Discovery
 
-Web app pour **découvrir, rechercher et gérer** les skills IA, serveurs MCP, et outils de développement. Propulsé par Claude AI.
+Application web de **découverte, recherche et gestion** de skills IA, serveurs MCP et outils de développement. Propulsée par Claude AI (Anthropic).
+
+> Application recréée from scratch à partir de la spécification technique (`README.md` + `CLAUDE.md` racine et `skills-discovery/` de la branche `dev`).
+
+Le projet principal vit dans **[`skills-discovery/`](skills-discovery/README.md)** :
+- `skills-discovery/api/` — Backend **Node.js 20+ / Hono** (port 8000)
+- `skills-discovery/frontend/` — Frontend **React 18 / Vite / TailwindCSS** (port 5173)
 
 ## Fonctionnalités
 
-- **Recherche full-text** (SQLite FTS5) par nom, description, features et tags
-- **Filtres** par catégorie, prix (free / freemium / paid) et tags
-- **Décomposition de but** — décris ton objectif, Claude le découpe en tâches et suggère les meilleurs outils pour chacune
-- **Comparateur** — compare 2–3 skills côte à côte (features, prix, tags, popularité)
-- **Favoris & Collections** — organise tes skills par projet ou cas d'usage
-- **Notes personnelles** — annote chaque skill avec tes propres observations
-- **Combinaisons de skills** — découvre quels outils fonctionnent bien ensemble
+- **Recherche full-text SQLite FTS5** (préfixe) sur nom, description, features et tags + filtres catégorie / prix / tags
+- **Recherche sémantique vectorielle** : TF-IDF sparse + espace de capacités 40D (score 65 % / 35 %)
+- **Décomposition de but (Goals)** : Claude Opus 4 avec persona expert IT (analyste, architecte, développeur), réponse structurée (`summary`, `architecture`, `tech_stack`, `analyst_notes`, `runtime_tools`, `steps[]`), fallback rule-based sans clé API, ExplainDrawer streaming, log de session
+- **Favoris, collections, notes personnelles** persistants
+- **Comparateur** 2-3 skills : feature matrix + tag matrix, état en `localStorage`
+- **Scraper configurable** — 9 types de sources : GitHub Trees API / Code Search (skill.md, agents.md) / Awesome lists / Search, npm registry, crawler générique, segmentation web IA (Claude Haiku) ; sessions pause / resume / stop avec logs temps réel
+- **Admin DB** : vue directe sur les tables SQLite, toggle `is_active`, purge, restart IPC
+
+## Démarrage rapide
+
+```bash
+cd skills-discovery
+(cd api && npm install)
+(cd frontend && npm install)
+cp api/.env.example api/.env       # renseigner ANTHROPIC_API_KEY, GITHUB_TOKEN
+node scripts/manager.js            # API :8000 + Frontend :5173
+```
+
+Documentation complète (API, schéma DB, crawlers, conventions) : [`skills-discovery/README.md`](skills-discovery/README.md)
 
 ## Stack technique
 
 | Couche | Technologie |
-|---|---|
-| Backend | FastAPI + Python 3.11+ |
-| Base de données | SQLite + FTS5 (full-text search) |
-| Frontend | React 18 + Vite + TailwindCSS |
-| IA (décomposition) | Claude API (`claude-opus-4-8`) |
-| ORM async | aiosqlite |
+|--------|-------------|
+| Backend | Node.js 20+ · Hono 4.6 · @hono/node-server |
+| Base de données | SQLite + FTS5 (better-sqlite3, synchrone) |
+| Base vectorielle | SQLite custom (TF-IDF + 40D capability space) |
+| Crawlers | Crawlee (CheerioCrawler) + API GitHub / npm |
+| IA décomposition | Claude Opus 4 (`claude-opus-4-8`) |
+| IA segmentation web | Claude Haiku (`claude-haiku-4-5-20251001`) |
+| Frontend | React 18 · Vite 5 · TailwindCSS 3 · react-router-dom 6 |
 
-## Structure du projet
+## Branche active
 
-```
-skills-discovery/
-├── backend/
-│   ├── app/
-│   │   ├── main.py              # FastAPI app, démarrage, CORS
-│   │   ├── database.py          # SQLite init, FTS5, triggers
-│   │   ├── models.py            # Schémas Pydantic
-│   │   ├── routers/
-│   │   │   ├── skills.py        # CRUD skills, favoris, notes
-│   │   │   ├── search.py        # Recherche FTS5 + filtres
-│   │   │   ├── collections.py   # Collections + favoris
-│   │   │   ├── goals.py         # Décomposition de but (Claude API)
-│   │   │   └── comparator.py    # Comparaison de skills
-│   │   └── scraper/
-│   │       ├── seed_data.py     # 50+ skills pré-chargés
-│   │       ├── claude_skills.py # Scraper Claude Code skills
-│   │       └── mcp_servers.py   # Scraper MCP servers
-│   ├── requirements.txt
-│   └── run.py
-├── frontend/
-│   ├── src/
-│   │   ├── pages/
-│   │   │   ├── Home.jsx         # Recherche principale
-│   │   │   ├── SkillDetail.jsx  # Détail + notes + collections
-│   │   │   ├── Goals.jsx        # Décomposition de but
-│   │   │   ├── Collections.jsx  # Favoris + collections
-│   │   │   └── Comparator.jsx   # Tableau de comparaison
-│   │   ├── components/
-│   │   │   ├── Navbar.jsx
-│   │   │   ├── SearchBar.jsx
-│   │   │   ├── SkillCard.jsx
-│   │   │   └── TagBadge.jsx
-│   │   └── api.js               # Client Axios
-│   ├── package.json
-│   └── vite.config.js
-└── README.md
-```
-
-## Installation et lancement
-
-### 1. Installer les prérequis
-
-#### Python
-
-Télécharger la dernière version depuis [python.org/downloads](https://www.python.org/downloads/) — cocher **Add Python to PATH** lors de l'installation.
-
-```powershell
-python --version
-pip --version
-```
-
----
-
-#### Node.js et npm
-
-Télécharger la dernière version LTS depuis [nodejs.org/en/download](https://nodejs.org/en/download).
-
-```powershell
-node --version
-npm --version
-```
-
----
-
-#### Clé API Anthropic (optionnel)
-
-Nécessaire pour activer la décomposition de but par Claude.
-Créer un compte et générer une clé sur [console.anthropic.com](https://console.anthropic.com).
-
----
-
-### 2. Installer les dépendances
-
-#### Backend (Python)
-
-```powershell
-cd skills-discovery\backend
-python -m venv .venv
-.venv\Scripts\Activate.ps1
-pip install -r requirements.txt
-```
-
-#### Frontend (Node.js)
-
-```powershell
-cd skills-discovery\frontend
-npm install
-```
-
----
-
-### 3. Lancer le projet
-
-#### Backend
-
-```powershell
-cd skills-discovery\backend
-.venv\Scripts\Activate.ps1
-
-# Optionnel — activer la décomposition IA avec Claude
-$env:ANTHROPIC_API_KEY = "sk-ant-..."
-
-python run.py
-# → http://localhost:8000
-# → Swagger UI : http://localhost:8000/docs
-```
-
-La base de données `skills.db` est créée automatiquement au premier démarrage avec **50+ skills** pré-chargés.
-
-#### Frontend (développement)
-
-```bash
-cd skills-discovery/frontend
-npm run dev
-# → http://localhost:5173
-```
-
-### Frontend (production — servi par FastAPI)
-
-```bash
-cd skills-discovery/frontend
-npm run build
-# Les fichiers sont dans frontend/dist/
-# FastAPI les sert automatiquement sur http://localhost:8000
-```
-
-## Skills pré-chargés (seed data)
-
-| Catégorie | Nombre | Exemples |
-|---|---|---|
-| Claude Code Skill | 14 | `/deep-research`, `/code-review`, `/security-review` |
-| MCP Server | 12 | `filesystem`, `github`, `brave-search`, `memory` |
-| AI Coding Tool | 16 | Claude Code CLI, Cursor, Aider, Windsurf, v0 |
-| AI Productivity Tool | 8 | Claude.ai, Perplexity, NotebookLM, Phind |
-
-## API — Endpoints principaux
-
-```
-GET  /api/search/search?q=...&category=...&pricing=...&tags=...
-GET  /api/search/categories
-GET  /api/search/tags
-
-GET  /api/skills              # liste paginée
-GET  /api/skills/{id}         # détail + notes + combinaisons
-POST /api/skills/{id}/favorite
-POST /api/skills/{id}/notes
-
-POST /api/goals/decompose     # {"goal": "..."} → tâches + skills
-POST /api/comparator          # {"skill_ids": [1, 2, 3]}
-
-GET  /api/collections
-POST /api/collections
-POST /api/collections/{id}/skills/{skill_id}
-GET  /api/collections/favorites/list
-
-GET  /api/health
-```
-
-## Décomposition de but
-
-Avec une clé API Anthropic, la décomposition utilise **Claude** (`claude-opus-4-8`) pour :
-1. Analyser le but et identifier 3–5 sous-tâches
-2. Suggérer les skills les plus pertinents de la base locale pour chaque tâche
-
-Sans clé API, un fallback rule-based prend le relais (détection par mots-clés).
-
-**Exemple :**
-> "Construire une API REST avec authentification et base de données PostgreSQL"
-
-→ Tâches générées :
-1. Design API structure → **Claude Code CLI**, Claude.ai, claude-api
-2. Implement backend logic → **Claude Code CLI**, Cursor, Continue.dev
-3. Set up database → **postgres MCP**, Claude Code CLI
-4. Write tests → **Claude Code CLI**, code-review
-5. Document and deploy → **Claude Code CLI**, fetch MCP
-
-## Variables d'environnement
-
-| Variable | Requis | Description |
-|---|---|---|
-| `ANTHROPIC_API_KEY` | Non | Active la décomposition de but par Claude |
-
-## Roadmap
-
-- [ ] Entité **Workflow** — séquences ordonnées de skills sauvegardables
-- [ ] **Software** comme catégorie (VS Code, Docker, Postman…)
-- [ ] Mise à jour automatique via re-crawl périodique
-- [ ] Export JSON/CSV d'une sélection de skills
-- [ ] Score de popularité enrichi (GitHub stars, Reddit mentions)
+`claude/new-app-from-scratch-1byn46` sur `do4fun/copilot-custom-app-base`

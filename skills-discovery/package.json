@@ -1,7 +1,9 @@
 {
-  "name": "skillshub",
+  "name": "skills-discovery",
   "version": "2.0.0",
   "private": true,
+  "type": "module",
+  "description": "SkillsHub — découverte et gestion de skills IA (Claude Code skills, MCP servers, outils IA)",
   "scripts": {
     "dev": "node scripts/manager.js"
   }
