@@ -100,11 +100,18 @@ export default function SkillDetail() {
   }
 
   let features = []
+  let webSegMeta = null
   if (skill) {
     try {
       features = JSON.parse(skill.features || '[]')
       if (!Array.isArray(features)) features = []
     } catch { features = [] }
+    if (skill.install_instructions) {
+      try {
+        const parsed = JSON.parse(skill.install_instructions)
+        if (parsed.type === 'web-segment' && parsed.selector) webSegMeta = parsed
+      } catch {}
+    }
   }
 
   if (loading) {
@@ -257,14 +264,52 @@ export default function SkillDetail() {
           </div>
         )}
 
-        {/* Install instructions */}
+        {/* Install instructions / web-segment metadata */}
         {skill.install_instructions && (
-          <div>
-            <h2 className="text-sm font-semibold text-gray-400 uppercase tracking-wide mb-2">Installation</h2>
-            <pre className="bg-gray-900 rounded-lg p-3 text-sm text-gray-300 overflow-x-auto whitespace-pre-wrap font-mono">
-              {skill.install_instructions}
-            </pre>
-          </div>
+          webSegMeta ? (
+            <div>
+              <h2 className="text-sm font-semibold text-gray-400 uppercase tracking-wide mb-2">Source web</h2>
+              <div className="bg-gray-900 border border-gray-700 rounded-lg p-3 space-y-2">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-xs text-gray-400">Sélecteur :</span>
+                  <code className="text-xs text-teal-400 font-mono bg-gray-800 px-2 py-0.5 rounded">{webSegMeta.selector}</code>
+                  <span className="text-xs text-gray-500">confiance : {Math.round((webSegMeta.confidence ?? 0) * 100)}%</span>
+                </div>
+                {webSegMeta.inputs?.length > 0 && (
+                  <p className="text-xs text-gray-400">
+                    <span className="text-gray-500">Inputs : </span>
+                    {webSegMeta.inputs.join(', ')}
+                  </p>
+                )}
+                {webSegMeta.output && (
+                  <p className="text-xs text-gray-400">
+                    <span className="text-gray-500">Output : </span>
+                    {webSegMeta.output}
+                  </p>
+                )}
+                {skill.source_url && (
+                  <a
+                    href={skill.source_url + (webSegMeta.selector.startsWith('#') ? webSegMeta.selector : '')}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1.5 text-sm text-teal-400 hover:text-teal-300 transition-colors mt-1"
+                  >
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                    </svg>
+                    Voir la section source
+                  </a>
+                )}
+              </div>
+            </div>
+          ) : (
+            <div>
+              <h2 className="text-sm font-semibold text-gray-400 uppercase tracking-wide mb-2">Installation</h2>
+              <pre className="bg-gray-900 rounded-lg p-3 text-sm text-gray-300 overflow-x-auto whitespace-pre-wrap font-mono">
+                {skill.install_instructions}
+              </pre>
+            </div>
+          )
         )}
 
         {/* Combinations */}

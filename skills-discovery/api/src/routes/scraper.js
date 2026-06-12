@@ -2,9 +2,10 @@ import { Hono } from 'hono'
 import { db, upsertSkill, appendLog, getInventory } from '../db.js'
 import { upsertSkillVector } from '../vector-db.js'
 import { crawlGithubAwesome, crawlGithubSearch } from '../crawlers/github.js'
-import { crawlGithubSkillFiles, crawlGithubSkillRepo } from '../crawlers/github-skills.js'
+import { crawlGithubSkillFiles, crawlGithubSkillRepo, crawlGithubAgentFiles, crawlGithubAgentRepo } from '../crawlers/github-skills.js'
 import { crawlNpm } from '../crawlers/npm.js'
 import { crawlGeneric } from '../crawlers/generic.js'
+import { crawlWebSegment } from '../crawlers/web-segment.js'
 
 const router = new Hono()
 
@@ -208,8 +209,11 @@ async function runSession(sid, cfg) {
       case 'github-search':       await crawlGithubSearch(cfg, ctx);       break
       case 'github-skill-files':  await crawlGithubSkillFiles(cfg, ctx);   break
       case 'github-skill-repo':   await crawlGithubSkillRepo(cfg, ctx);    break
+      case 'github-agent-files':  await crawlGithubAgentFiles(cfg, ctx);   break
+      case 'github-agent-repo':   await crawlGithubAgentRepo(cfg, ctx);    break
       case 'npm':                 await crawlNpm(cfg, ctx);                 break
       case 'generic':             await crawlGeneric(cfg, ctx);             break
+      case 'web-segment':         await crawlWebSegment(cfg, ctx);          break
       default: onLog(`Type inconnu: ${cfg.type}`)
     }
 

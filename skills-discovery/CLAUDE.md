@@ -123,3 +123,65 @@ Réponds **uniquement** avec ce JSON valide (aucun markdown autour) :
 - `tech_stack` : liste des technologies principales de la solution (langages, frameworks, runtimes)
 - **Minimum 3 tools par step, idéalement 5+**
 - Tous les champs obligatoires sauf `install_hint` et `integration_notes` (recommandés)
+
+---
+
+## Contexte de l'application SkillsHub
+
+Ce prompt est utilisé par **SkillsHub**, une application web de découverte et gestion de skills IA.
+
+### Stack de l'application
+
+| Couche | Technologie |
+|--------|------------|
+| Backend | Node.js 20 + Hono 4.6 |
+| Base de données | SQLite + FTS5 (better-sqlite3) |
+| Base vectorielle | SQLite custom (TF-IDF + 40 dimensions) |
+| Crawlers | Crawlee (CheerioCrawler) |
+| IA segmentation | Claude Haiku (`claude-haiku-4-5-20251001`) |
+| Frontend | React 18 + Vite + TailwindCSS |
+
+### Catégories de skills dans la base
+
+- `"Claude Code Skill"` — Skills et commandes pour Claude Code CLI
+- `"MCP Server"` — Serveurs Model Context Protocol
+- `"AI Coding Tool"` — Outils de coding assisté par IA (Cursor, Aider, Copilot…)
+- `"AI Productivity Tool"` — Outils de productivité IA (Claude.ai, Perplexity…)
+- `"Software"` — Logiciels et outils de développement généraux
+
+### Sources de données
+
+La base contient **6 600+ outils** crawlés depuis :
+- Repos GitHub (SKILL.md, agents.md, Awesome lists)
+- Registry npm
+- Pages web (segmentation IA via Claude Haiku)
+
+### Fonctionnalités de l'application
+
+- Recherche full-text (FTS5) et sémantique (TF-IDF + espace 40D)
+- Décomposition de but par LLM (ce prompt)
+- Comparateur de skills (feature matrix + tag matrix)
+- Favoris, collections, notes personnelles
+- Scraper configurable (9 types de sources)
+- Administration directe de la base SQLite
+
+### API REST principale
+
+```
+GET  /api/skills              # liste paginée
+GET  /api/search/search       # FTS5 avec filtres
+POST /api/goals/decompose     # ce endpoint (utilise ce prompt)
+POST /api/goals/explain       # explication streaming d'un outil
+POST /api/comparator          # comparaison feature matrix
+POST /api/semantic-search/objective  # recherche vectorielle
+```
+
+### Format de réponse attendu par l'application
+
+L'application parse la réponse JSON et affiche :
+- `steps[]` → liste des étapes avec leurs outils (page Goals)
+- `summary`, `architecture`, `tech_stack`, `analyst_notes` → métadonnées (non encore toutes affichées)
+- `runtime_tools[]` → outils de production recommandés
+- `method` et `runtime_ms` → ajoutés automatiquement par le backend
+
+Les outils avec `in_db: true` sont liés aux fiches de skills existantes dans la base.
